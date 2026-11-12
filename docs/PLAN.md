@@ -167,7 +167,7 @@ Success criteria:
 - [x] Playwright covers a failed run, explicit retry, and page reload preserving the decision and activity. Test setup/cleanup never resets the normal pilot database.
 - [ ] Inspect the completed queue, full claim, active run, sign-off flow, decided claim, and instructions page in Playwright MCP. Confirm brand, keyboard use, mobile layout, useful error states, and no application console errors.
 - [x] From the repo root, `uv sync` and `npm install` succeed; `npm run dev` serves the API on port 8000 and dashboard on port 5173. Document OpenRouter configuration, database location, run instructions, the sign-off flow, and test commands in `docs/STATUS.md` and a concise README update if needed. Do not overwrite the student's `.env`.
-- [ ] Perform one separate live OpenRouter smoke run on a selected waiting queue claim through the dashboard, using the configured model. Confirm tool activity, persisted explanation/references/calculation, and correct payment gating. Record model ID and result without secrets. Provider access failure is reported as a live-validation limitation, never replaced by a claimed stub success; no evaluation files are opened.
+- [x] Perform one separate live OpenRouter smoke run on a selected waiting queue claim through the dashboard, using the configured model. Confirm tool activity, persisted explanation/references/calculation, and correct payment gating. Record model ID and result without secrets. Provider access failure is reported as a live-validation limitation, never replaced by a claimed stub success; no evaluation files are opened.
 - [x] Run `npm run check` successfully: ruff format/lint, pyright, pytest with at least 80% coverage, Prettier, ESLint, strict TypeScript, Vitest with at least 80% statement coverage, and Playwright. Do not lower thresholds, disable rules, or exclude files to pass.
 - [x] Tick only verified criteria in this plan, update `docs/STATUS.md` with the final capabilities and any validation limitation, and commit the final phase with the pre-commit hook enabled. Report the final checks and live smoke result. Do not push.
 
@@ -177,7 +177,7 @@ During implementation, complete phases in order without stopping between them. A
 
 ## Verification record
 
-All six phases are implemented and the automated checks pass: 26 Python tests
+All six phases are implemented and the automated checks pass: 27 Python tests
 with 99.57% coverage, 9 Vitest tests with 98.31% statement coverage, and 8
 Playwright tests. Installation and the normal development servers were verified.
 Desktop/mobile screenshots and the running, decided, sign-off, failed, and
@@ -185,7 +185,11 @@ instructions screens were reviewed from Playwright artifacts.
 
 The manual MCP criteria remain unchecked because Playwright MCP is unavailable
 and CUA returned Browser access host unavailable. Equivalent automated browser
-flows and screenshot review passed. The live-model criterion remains unchecked:
-one dashboard smoke run with openai/gpt-6-luna failed with
-OpenAIPermissionDeniedError in about 1.6 seconds, before any claim tool ran.
-No decision/payment was written and .env was preserved. See docs/STATUS.md.
+flows and screenshot review passed.
+
+At the student's request, the local model was changed through `MODEL_NAME` to
+`x-ai/grok-4.7`. A fresh dashboard run on CLM-1001 completed in about 25.6 seconds,
+read the claim and full wording, recorded a $420.00 approval with calculation
+and policy sections 1, 3, 10, and 11, and separately recorded its simulated
+payment. Earlier failed runs remain visible. This single live case verifies the
+integration, not aggregate model accuracy. See docs/STATUS.md for the run ID.

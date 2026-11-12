@@ -112,11 +112,12 @@ def test_recursion_limit_and_no_file_access(client, monkeypatch):
         main.run("CLM-1001", "thread-1", stub)
 
 
-def test_model_configuration(monkeypatch):
+@pytest.mark.parametrize("model_name", ["openrouter/free", "x-ai/grok-4.7"])
+def test_model_configuration(monkeypatch, model_name):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.delenv("MODEL_NAME", raising=False)
     assert main.model().model_name == "openai/gpt-6-luna"
     assert main.model().reasoning_effort == "low"
-    monkeypatch.setenv("MODEL_NAME", "openrouter/free")
-    assert main.model().model_name == "openrouter/free"
+    monkeypatch.setenv("MODEL_NAME", model_name)
+    assert main.model().model_name == model_name
     assert main.model().reasoning_effort is None

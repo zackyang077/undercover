@@ -39,10 +39,11 @@ npm run dev
 - Backend health: http://127.0.0.1:8000/api/health
 - API documentation: http://127.0.0.1:8000/docs
 
-Keep `OPENROUTER_API_KEY` in `.env`. The default model is `openai/gpt-6-luna`
-with low reasoning effort. Set `MODEL_NAME` to use another model available to
-that OpenRouter account, such as `openrouter/free`; overrides do not force the
-reasoning setting. Restart the backend after changing `.env`.
+Keep `OPENROUTER_API_KEY` in `.env`. The current local configuration is
+`MODEL_NAME=x-ai/grok-4.7`, using Grok 4.7 through OpenRouter. Model overrides
+do not force a reasoning setting. If `MODEL_NAME` is unset, the course fallback
+is `openai/gpt-6-luna` with low reasoning effort. Restart the backend after
+changing `.env`.
 
 `UNDERCOVER_DB` selects the SQLite file; the default is `undercover.sqlite3` in
 this directory, ignored by git. `BACKEND_URL` selects the agent's HTTP backend
@@ -66,7 +67,7 @@ were weakened. The installation commands and normal `npm run dev` were verified.
 
 Latest automated results on November 12, 2026:
 
-- Python: 26 tests passed, 99.57% coverage.
+- Python: 27 tests passed, 99.57% coverage.
 - Dashboard: 9 tests passed, 98.31% statement coverage.
 - Playwright: 8 tests passed, including approvals, declines, referrals, the
   $1,000 boundary, sign-off enforcement, duplicate-payment rejection, failed-run
@@ -79,14 +80,25 @@ The scripted outcomes are test scenarios, not evaluation answers or claims of
 model accuracy. No evaluation files were opened or used for prompt tuning.
 Screenshots are generated under `e2e/test-results/` and are ignored by git.
 
+## Live model verification
+
+The local configuration was changed to `x-ai/grok-4.7` at the student's request.
+A new run on CLM-1001 through the normal dashboard completed in about 25.6
+seconds on November 12, 2026. It called `read_claim`, `read_policy_wording`,
+`record_decision`, and `pay_claim`, with activity persisted throughout.
+
+The agent approved $420.00: hotel $245.00, meals $95.00, and taxis $80.00.
+Its three-sentence explanation cited policy sections 1, 3, 10, and 11, applied
+the six-hour Premium waiting period and $800 Trip Delay maximum, and recognized
+continued coverage on the delayed return journey. A separate $420.00 simulated
+payment was recorded. This is one successful live smoke case, not an aggregate
+accuracy evaluation. Earlier failed runs remain in the claim's history.
+
+Run ID: `bcfa4ddc-9b24-4fed-8d03-1aef0d638068`.
+The `.env` change only sets `MODEL_NAME`; credentials were preserved.
+
 ## Validation limits
 
-- The separate live smoke run used the normal dashboard, existing `.env`, and
-  `openai/gpt-6-luna` on CLM-1001. OpenRouter returned
-  `OpenAIPermissionDeniedError` after about 1.6 seconds, before any claim tool
-  ran. The run is recorded as Failed; no decision or payment was created.
-  Live model completion is unverified until model/account access is resolved.
-  The existing `.env` was preserved and no fallback model was silently selected.
 - Playwright MCP is not available. The CUA browser tool returned
   `The browser access host is unavailable`. Automated Playwright interactions,
   console-error assertions, and screenshot review were completed instead;
