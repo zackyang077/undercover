@@ -114,13 +114,13 @@ Use `OPENROUTER_API_KEY` from `.env`, default to `openai/gpt-6-luna` with low re
 
 Success criteria:
 
-- [ ] A scripted model drives `run("CLM-1001", "test-thread")` through real backend tool handlers, fetches the claim and full wording, saves a `$420.00` approval citing section 3, and records a separate simulated payment.
-- [ ] Scripted decline and refer paths save a zero payout, explanation, calculation, and references, and make no payment request.
-- [ ] A scripted over-limit path saves an approval and stops awaiting sign-off. A second test deliberately makes the model attempt payment anyway and confirms the backend returns the blocked result with no payment recorded. The tool set contains no handler sign-off operation.
-- [ ] Captured model messages contain the backend-served instructions, policy, claim evidence, plan, and customer history. Tests forbid direct business-file and SQLite access from the agent and prove tools cannot mutate a different claim.
-- [ ] Tests verify the default model and low reasoning setting, the `MODEL_NAME` override, tool error responses, malformed decision rejection, and termination when the model keeps calling tools without finishing.
-- [ ] All automated tests use a stub model and make zero OpenRouter calls. A run cannot be reported as successfully decided unless the backend actually contains its decision.
-- [ ] `npm run check:python` passes at the existing coverage threshold. Update `docs/STATUS.md` and commit through the pre-commit hook.
+- [x] A scripted model drives `run("CLM-1001", "test-thread")` through real backend tool handlers, fetches the claim and full wording, saves a `$420.00` approval citing section 3, and records a separate simulated payment.
+- [x] Scripted decline and refer paths save a zero payout, explanation, calculation, and references, and make no payment request.
+- [x] A scripted over-limit path saves an approval and stops awaiting sign-off. A second test deliberately makes the model attempt payment anyway and confirms the backend returns the blocked result with no payment recorded. The tool set contains no handler sign-off operation.
+- [x] Captured model messages contain the backend-served instructions, policy, claim evidence, plan, and customer history. Tests forbid direct business-file and SQLite access from the agent and prove tools cannot mutate a different claim.
+- [x] Tests verify the default model and low reasoning setting, the `MODEL_NAME` override, tool error responses, malformed decision rejection, and termination when the model keeps calling tools without finishing.
+- [x] All automated tests use a stub model and make zero OpenRouter calls. A run cannot be reported as successfully decided unless the backend actually contains its decision.
+- [x] `npm run check:python` passes at the existing coverage threshold. Update `docs/STATUS.md` and commit through the pre-commit hook.
 
 ## Phase 4 — Background runs and visible activity
 

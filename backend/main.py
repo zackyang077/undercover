@@ -4,7 +4,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from pydantic import JsonValue
 
 from backend.finance import Finance
@@ -23,7 +23,6 @@ from backend.storage import Store
 def create_app(path: Path) -> FastAPI:
     """Create a backend with an isolated database location."""
     store = Store(path)
-    finance = Finance(store)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -58,22 +57,35 @@ def create_app(path: Path) -> FastAPI:
         """Read the complete policy wording."""
         return Wording.model_validate(store.get("settings", "wording"))
 
-    @application.post("/api/claims/{claim_id}/decision", operation_id="record_decision")
+    @application.get("/api/agent/instructions", operation_id="get_agent_instructions")
+    def get_agent_instructions() -> dict[str, str]:
+        """Read the instructions used by the claims agent."""
+        return {"content": Path(__file__).with_name("instructions.md").read_text()}
+
+    application.include_router(financial_routes(store))
+    return application
+
+
+def financial_routes(store: Store) -> APIRouter:
+    router = APIRouter()
+    finance = Finance(store)
+
+    @router.post("/api/claims/{claim_id}/decision", operation_id="record_decision")
     def record_decision(claim_id: str, decision: DecisionInput) -> dict[str, JsonValue]:
         """Save the agent's final decision."""
         return finance.decide(claim_id, decision)
 
-    @application.post("/api/claims/{claim_id}/sign-off", operation_id="sign_off_claim")
+    @router.post("/api/claims/{claim_id}/sign-off", operation_id="sign_off_claim")
     def sign_off_claim(claim_id: str, request: SignOffInput) -> dict[str, JsonValue]:
         """Record handler sign-off on an approved claim."""
         return finance.sign_off(claim_id, request)
 
-    @application.post("/api/claims/{claim_id}/payment", operation_id="pay_claim")
+    @router.post("/api/claims/{claim_id}/payment", operation_id="pay_claim")
     def pay_claim(claim_id: str, request: PaymentInput) -> dict[str, JsonValue]:
         """Record a simulated payment after enforcing the approval gate."""
         return finance.pay(claim_id, request)
 
-    return application
+    return router
 
 
 app = create_app(Path(os.getenv("UNDERCOVER_DB", "undercover.sqlite3")))

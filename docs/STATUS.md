@@ -16,3 +16,9 @@ Phase 2: final decisions, handler sign-off, and simulated payments are built.
 The backend blocks unsigned payouts above $1,000, mismatched amounts, and
 duplicate payments, including concurrent attempts. Decisions and payments persist.
 Validation: 13 Python tests pass, 99.67% coverage; full npm run check passes.
+
+Phase 3: the claims agent reads instructions and evidence through backend HTTP
+tools, records a policy-based decision, and separately requests simulated payment.
+Tools are bound to one claim; no sign-off tool is exposed. Automated tests use
+scripted models only. Default model and MODEL_NAME override are tested.
+Validation: npm run check passes; 18 Python tests, 99.70% coverage.
