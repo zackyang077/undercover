@@ -146,6 +146,7 @@ class ClaimSummary(BaseModel):
     amount_claimed: float
     status: str
     outcome: str
+    payout_amount: float | None
     payment_status: str
 
 

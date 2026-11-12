@@ -86,6 +86,7 @@ export function Workspace({
           <p>{claim.summary}</p>
         </div>
         <div className="claim-action">
+          <span className="eyebrow">Claimed amount</span>
           <strong className="claim-amount mono">
             {money(claim.amount_claimed)}
           </strong>
@@ -96,15 +97,17 @@ export function Workspace({
                 : detail.status,
             )}
           </span>
-          <button
-            className="primary"
-            disabled={busy || active || decision !== null}
-            onClick={() => {
-              void act(() => api(`/claims/${claimId}/runs`, {}));
-            }}
-          >
-            {startLabel}
-          </button>
+          {!decision && (
+            <button
+              className="primary"
+              disabled={busy || active}
+              onClick={() => {
+                void act(() => api(`/claims/${claimId}/runs`, {}));
+              }}
+            >
+              {startLabel}
+            </button>
+          )}
         </div>
       </section>
       {error && (
@@ -112,15 +115,15 @@ export function Workspace({
           {error}
         </p>
       )}
+      <DecisionPanel
+        detail={detail}
+        handlers={handlers}
+        busy={busy}
+        active={active}
+        act={act}
+      />
       <div className="work-grid">
         <div>
-          <DecisionPanel
-            detail={detail}
-            handlers={handlers}
-            busy={busy}
-            active={active}
-            act={act}
-          />
           <Evidence detail={detail} wording={wording} />
         </div>
         <Activity runs={runs} />

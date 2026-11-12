@@ -360,7 +360,7 @@ main {
   line-height: 1.7;
 }
 .decision-reason {
-  margin-top: 18px;
+  margin-top: 0;
   font-size: 14px;
 }
 .calculation {
@@ -635,5 +635,58 @@ footer {
 @media (prefers-reduced-motion: reduce) {
   button {
     transition: none;
+  }
+}
+.decision-overview {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+.decision-overview h2 {
+  margin-top: 5px;
+  font-size: 26px;
+}
+.decision-approved {
+  background: #e3f6ee;
+}
+.approved-amount {
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+  flex-shrink: 0;
+}
+.approved-amount span {
+  color: #315d50;
+  font-size: 12px;
+}
+.approved-amount strong {
+  font-size: 36px;
+  letter-spacing: -1px;
+  line-height: 1.4;
+}
+.decision-approved .payment {
+  background: #fff;
+  margin-top: 18px;
+  padding: 14px 18px;
+  font-size: 14px;
+}
+.queue-result {
+  display: block;
+}
+@media (max-width: 760px) {
+  .decision-overview {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .decision-overview h2 {
+    font-size: 24px;
+  }
+  .approved-amount {
+    text-align: left;
+  }
+  .approved-amount strong {
+    font-size: 32px;
   }
 }

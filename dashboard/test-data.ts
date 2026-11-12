@@ -99,6 +99,7 @@ export const initialQueue: ClaimSummary[] = [
     amount_claimed: 420,
     status: "waiting",
     outcome: "",
+    payout_amount: null,
     payment_status: "not_applicable",
   },
 ];

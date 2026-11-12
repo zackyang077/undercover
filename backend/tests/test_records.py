@@ -31,6 +31,7 @@ def test_records_and_restart(tmp_path, monkeypatch):
         queue = client.get("/api/claims").json()
         assert len(queue) == 25
         assert {c["status"] for c in queue} == {"waiting"}
+        assert all(c["payout_amount"] is None for c in queue)
         detail = client.get("/api/claims/CLM-1001").json()
         assert detail["customer"]["name"] == "Maya Patel"
         assert len(detail["claim"]["documents"]) == 4

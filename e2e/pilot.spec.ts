@@ -21,10 +21,23 @@ test("scripted approval shows activity and records a separate payment", async ({
   page,
   request,
 }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await openClaim(page, "CLM-1001");
   await start(page);
   await page.screenshot({ path: "e2e/test-results/pilot-running.png" });
   await expect(page.getByText("Simulated payment recorded")).toBeVisible();
+  const result = page.getByRole("region", { name: "Agent decision" });
+  await expect(
+    result.getByRole("heading", { name: "Claim approved" }),
+  ).toBeVisible();
+  const amount = result.getByText("$420.00", { exact: true });
+  await expect(amount).toBeInViewport();
+  const queue = page.getByRole("complementary", { name: "Claims queue" });
+  await expect(queue.getByText("Approved · $420.00")).toBeVisible();
+  await expect(queue.getByText("Paid (simulated)")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start agent" })).toHaveCount(
+    0,
+  );
   await page.screenshot({ path: "e2e/test-results/pilot-decided.png" });
   await expect(
     page.getByRole("region", { name: "Agent activity" }),
@@ -38,6 +51,17 @@ test("scripted approval shows activity and records a separate payment", async ({
   });
   await page.reload();
   await expect(page.getByText("Simulated payment recorded")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await result
+    .getByRole("heading", { name: "Claim approved" })
+    .scrollIntoViewIfNeeded();
+  await expect(amount).toBeInViewport();
+  const payoutBox = await amount.boundingBox();
+  const activityBox = await page
+    .getByRole("region", { name: "Agent activity" })
+    .boundingBox();
+  expect(payoutBox?.y).toBeLessThan(activityBox?.y ?? 0);
+  await page.screenshot({ path: "e2e/test-results/pilot-approved-mobile.png" });
 });
 
 test("over-limit payment is blocked until handler sign-off", async ({

@@ -24,6 +24,11 @@ and automated acceptance coverage. The remaining validation limits are listed be
   Handler sign-off and simulated payment use separate API calls. A failed payment
   after sign-off can be retried without another sign-off. The selected claim
   survives reload through the URL. Brand fonts are bundled locally.
+- Approved claims show a full-width result card above evidence and activity,
+  with a prominent approval heading, approved payout, and simulated payment
+  state before the reason and calculation. The queue shows the approved payout
+  and payment/sign-off status. Claimed amounts are labeled separately, and the
+  Start agent action is removed once a decision has been recorded.
 
 ## Run
 
@@ -68,10 +73,12 @@ were weakened. The installation commands and normal `npm run dev` were verified.
 Latest automated results on November 12, 2026:
 
 - Python: 27 tests passed, 99.57% coverage.
-- Dashboard: 9 tests passed, 98.31% statement coverage.
+- Dashboard: 9 tests passed, 98.44% statement coverage.
 - Playwright: 8 tests passed, including approvals, declines, referrals, the
   $1,000 boundary, sign-off enforcement, duplicate-payment rejection, failed-run
   retry, reload persistence, keyboard access, and desktop/mobile layout.
+  Approval checks also verify the payout is in the desktop viewport and appears
+  before the activity history on mobile, including after a reload.
 
 Automated tests make no model calls. Playwright launches a dedicated scripted
 agent server on port 8010 and Vite on 5174, with a new temporary database per

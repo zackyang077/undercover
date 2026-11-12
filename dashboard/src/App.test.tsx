@@ -37,7 +37,13 @@ function setup(
       if (custom) return Promise.resolve(custom);
       let body: unknown = {};
       if (url === "/api/claims")
-        body = initialQueue.map((c) => ({ ...c, status: detail.status }));
+        body = initialQueue.map((c) => ({
+          ...c,
+          status: detail.status,
+          outcome: detail.decision?.outcome ?? "",
+          payout_amount: detail.decision?.payout_amount ?? null,
+          payment_status: detail.payment ? "paid" : "unpaid",
+        }));
       else if (url === "/api/handlers") body = people;
       else if (url === "/api/policy-wording") body = wording;
       else if (url === "/api/agent/instructions")
@@ -113,10 +119,15 @@ it("polls an active run and shows a paid decision without reload", async () => {
   expect(await screen.findByText("Simulated payment recorded")).toBeDefined();
   expect(screen.getByText(approved.calculation)).toBeDefined();
   expect(screen.getByText("Policy sections 3, 10")).toBeDefined();
-  expect(screen.getByRole("button", { name: "Start agent" })).toHaveProperty(
-    "disabled",
-    true,
-  );
+  const result = screen.getByRole("region", { name: "Agent decision" });
+  expect(
+    within(result).getByRole("heading", { name: "Claim approved" }),
+  ).toBeDefined();
+  expect(within(result).getByText("$420.00", { exact: true })).toBeDefined();
+  const queue = screen.getByRole("complementary", { name: "Claims queue" });
+  expect(within(queue).getByText("Approved · $420.00")).toBeDefined();
+  expect(within(queue).getByText("Paid (simulated)")).toBeDefined();
+  expect(screen.queryByRole("button", { name: "Start agent" })).toBeNull();
 });
 
 it("records sign-off once and retries a failed payment", async () => {
@@ -148,6 +159,10 @@ it("records sign-off once and retries a failed payment", async () => {
   detail.status = "waiting_sign_off";
   render(<App />);
   const sign = await screen.findByRole("button", { name: "Sign off and pay" });
+  expect(screen.getByRole("heading", { name: "Claim approved" })).toBeDefined();
+  const result = screen.getByRole("region", { name: "Agent decision" });
+  expect(within(result).getByText("$1,250.00", { exact: true })).toBeDefined();
+  expect(within(result).getByText("Payment pending")).toBeDefined();
   expect(sign).toHaveProperty("disabled", true);
   fireEvent.change(screen.getByLabelText("Handler"), {
     target: { value: "HND-01" },
@@ -181,6 +196,7 @@ it.each(["decline", "refer"] as const)(
       within(panel).getByText(outcome === "refer" ? "Refer" : "Decline"),
     ).toBeDefined();
     expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull();
+    expect(within(panel).queryByText("Approved payout")).toBeNull();
     expect(screen.getByText("No previous claims.")).toBeDefined();
   },
 );

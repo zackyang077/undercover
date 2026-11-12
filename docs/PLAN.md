@@ -149,7 +149,7 @@ Use a handler selector and a Sign off and pay action for over-limit approvals. I
 Success criteria:
 
 - [x] Vitest covers queue/detail rendering, full story/items/documents/policy/history, decision explanation/calculation/references, activity polling, read-only instructions, and USD formatting.
-- [x] Start agent is disabled while work is active or the claim already has a decision. Tests verify successful state refresh, failed-run retry, stopped polling after completion, and visible fetch/mutation errors without losing selected-claim context.
+- [x] Start agent is disabled while work is active and no longer shown once a decision exists. Tests verify successful state refresh, failed-run retry, stopped polling after completion, and visible fetch/mutation errors without losing selected-claim context.
 - [x] Tests show an over-limit approval as Waiting for sign-off, require a handler selection, and distinguish decision approval from payment. A declined or referred claim has no payment action.
 - [x] Tests cover successful sign-off/payment, blocked payment, and a failed payment after successful sign-off; retrying does not record another sign-off or duplicate payment.
 - [ ] With `npm run dev`, inspect the page using Playwright MCP at desktop and narrow mobile widths. Verify all 25 queue rows, CLM-1001's complete evidence, keyboard access, no horizontal page overflow, readable colors, and read-only instructions. Check the browser console for application errors.
@@ -178,7 +178,7 @@ During implementation, complete phases in order without stopping between them. A
 ## Verification record
 
 All six phases are implemented and the automated checks pass: 27 Python tests
-with 99.57% coverage, 9 Vitest tests with 98.31% statement coverage, and 8
+with 99.57% coverage, 9 Vitest tests with 98.44% statement coverage, and 8
 Playwright tests. Installation and the normal development servers were verified.
 Desktop/mobile screenshots and the running, decided, sign-off, failed, and
 instructions screens were reviewed from Playwright artifacts.
@@ -193,3 +193,10 @@ read the claim and full wording, recorded a $420.00 approval with calculation
 and policy sections 1, 3, 10, and 11, and separately recorded its simulated
 payment. Earlier failed runs remain visible. This single live case verifies the
 integration, not aggregate model accuracy. See docs/STATUS.md for the run ID.
+
+Following the student's approval-display feedback, the approved result is now
+shown above evidence and activity, with its payout and payment state before
+the explanation and calculation. Queue entries show the approved amount and
+payment/sign-off state separately from the claimed amount. Desktop and mobile
+screens were checked against the existing live CLM-1001 result without a new
+model call, and the full automated checks pass.

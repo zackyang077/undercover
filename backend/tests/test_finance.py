@@ -56,6 +56,7 @@ def test_boundary_sign_off_and_payment(client, amount):
     assert client.post(f"{CLAIM}/payment", json={"amount": amount}).status_code == 409
     assert client.post(f"{CLAIM}/decision", json=decision()).status_code == 409
     assert client.get("/api/claims").json()[0]["payment_status"] == "paid"
+    assert client.get("/api/claims").json()[0]["payout_amount"] == amount
 
 
 @pytest.mark.parametrize("outcome", ["decline", "refer"])

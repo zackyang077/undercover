@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, label, message, money } from "./api";
+import { api, message } from "./api";
 import type { ClaimSummary, Handler, Wording } from "./types";
+import { ClaimQueue } from "./ClaimQueue";
 import { Workspace } from "./Workspace";
 import "./style.css";
 
@@ -128,51 +129,18 @@ export function App() {
               </div>
             </section>
             <div className="desk">
-              <aside className="panel queue" aria-label="Claims queue">
-                <div className="section-heading">
-                  <h2>Claims queue</h2>
-                  <span className="count">{claims.length}</span>
-                </div>
-                <p className="muted queue-caption">Select a claim to review</p>
-                <div className="queue-list">
-                  {claims.map((claim) => (
-                    <button
-                      className={`queue-row ${selected === claim.claim_id ? "selected" : ""}`}
-                      key={claim.claim_id}
-                      aria-pressed={selected === claim.claim_id}
-                      onClick={() => {
-                        setSelected(claim.claim_id);
-                        window.history.replaceState(
-                          null,
-                          "",
-                          `?claim=${encodeURIComponent(claim.claim_id)}`,
-                        );
-                      }}
-                    >
-                      <span className="queue-meta">
-                        <span className="mono">{claim.claim_id}</span>
-                        <strong className="mono">
-                          {money(claim.amount_claimed)}
-                        </strong>
-                      </span>
-                      <strong className="customer-name">
-                        {claim.customer_name}
-                      </strong>
-                      <span className="queue-summary">{claim.summary}</span>
-                      <span className={`status ${claim.status}`}>
-                        {label(
-                          claim.status === "waiting_sign_off"
-                            ? "waiting for sign-off"
-                            : claim.status,
-                        )}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                {claims.length === 0 && (
-                  <p className="empty">No claims in the queue.</p>
-                )}
-              </aside>
+              <ClaimQueue
+                claims={claims}
+                selected={selected}
+                onSelect={(claimId) => {
+                  setSelected(claimId);
+                  window.history.replaceState(
+                    null,
+                    "",
+                    `?claim=${encodeURIComponent(claimId)}`,
+                  );
+                }}
+              />
               {claims.length > 0 && wording && (
                 <Workspace
                   key={selected}

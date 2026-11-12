@@ -4,7 +4,7 @@ import json
 import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException
 
@@ -157,6 +157,9 @@ class Store:
             amount_claimed=detail.claim.amount_claimed,
             status=detail.status,
             outcome=outcome,
+            payout_amount=cast(int, detail.decision["payout_cents"]) / 100
+            if detail.decision
+            else None,
             payment_status="paid"
             if detail.payment
             else ("unpaid" if outcome == "approve" else "not_applicable"),

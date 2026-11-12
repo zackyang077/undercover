@@ -8,6 +8,7 @@ export interface ClaimSummary {
   amount_claimed: number;
   status: QueueStatus;
   outcome: string;
+  payout_amount: number | null;
   payment_status: string;
 }
 export interface Handler {

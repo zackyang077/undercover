@@ -85,25 +85,42 @@ function Payment({ detail, handlers, busy, active, act }: Props) {
 export function DecisionPanel(props: Props) {
   const { decision } = props.detail;
   return (
-    <section className="panel decision" aria-label="Agent decision">
-      <div className="section-heading">
-        <h2>Agent decision</h2>
-        <span className="eyebrow">
-          {decision ? label(decision.outcome) : "Ready to review"}
-        </span>
+    <section
+      className={`panel decision ${decision?.outcome === "approve" ? "decision-approved" : ""}`}
+      aria-label="Agent decision"
+      aria-live="polite"
+    >
+      <div className="decision-overview">
+        <div>
+          <p className="eyebrow">Agent decision</p>
+          <h2>
+            {decision?.outcome === "approve"
+              ? "Claim approved"
+              : "Agent decision"}
+          </h2>
+          {decision?.outcome !== "approve" && (
+            <span className="eyebrow">
+              {decision ? label(decision.outcome) : "Ready to review"}
+            </span>
+          )}
+        </div>
+        {decision?.outcome === "approve" && (
+          <div className="approved-amount">
+            <span>Approved payout</span>
+            <strong className="mono">{money(decision.payout_amount)}</strong>
+          </div>
+        )}
       </div>
       {decision ? (
         <>
+          {decision.outcome === "approve" && <Payment {...props} />}
+          <h3>Decision reason</h3>
           <p className="decision-reason">{decision.explanation}</p>
+          <h3>Calculation</h3>
           <p className="calculation">{decision.calculation}</p>
           <p className="muted">
             Policy sections {decision.policy_references.join(", ")}
           </p>
-          <div className="total">
-            <span>Approved payout</span>
-            <strong className="mono">{money(decision.payout_amount)}</strong>
-          </div>
-          {decision.outcome === "approve" && <Payment {...props} />}
         </>
       ) : (
         <p className="empty">
