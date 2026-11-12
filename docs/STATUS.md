@@ -1,10 +1,13 @@
 # Status
 
-A hello-world skeleton with every check in place:
+Pilot phase 1 is built: SQLite imports the 25 queue claims and linked policies,
+customers, plans, and handlers once. Read APIs expose full claim evidence and
+policy wording. Evaluation and manual files are excluded from loading.
 
-- `backend/`: one route, `GET /api/health`
-- `agent/`: the entry point `run(claim_id, thread_id)`, with one tool that calls the health route
-- `dashboard/`: one page that shows whether the backend is up
-- `e2e/`: one test of that page
+Run `uv sync` and `npm install` at the root, then `npm run dev`.
+The API is at http://127.0.0.1:8000 and dashboard at http://localhost:5173.
+The default local database is `undercover.sqlite3` (ignored by git).
+Set `UNDERCOVER_DB` to use another database.
 
-Nothing of UnderCover is built yet. Update this file as you build.
+Validation: phase 1 has five passing Python tests with 99.49% coverage.
+The dashboard and agent still have their skeleton behavior.
