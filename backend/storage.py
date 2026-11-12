@@ -72,6 +72,13 @@ class Store:
             (kind, record_id, json.dumps(body)),
         )
 
+    @staticmethod
+    def find(connection, kind: str, record_id: str) -> dict[str, Any] | None:
+        row = connection.execute(
+            "SELECT body FROM records WHERE kind=? AND id=?", (kind, record_id)
+        ).fetchone()
+        return json.loads(row["body"]) if row else None
+
     def get(self, kind: str, record_id: str) -> dict[str, Any]:
         with self.connection() as connection:
             row = connection.execute(
@@ -92,6 +99,20 @@ class Store:
         claim = self.get("claims", claim_id)
         policy = self.get("policies", claim["policy_id"])
         plans = self.get("settings", "plans")
+        with self.connection() as connection:
+            decision = self.find(connection, "decisions", claim_id)
+            signed = self.find(connection, "sign_offs", claim_id)
+            payment = self.find(connection, "payments", claim_id)
+        limit = self.get("settings", "company")["payout_approval_limit"]
+        status = "waiting"
+        if decision:
+            status = "decided"
+            if (
+                decision["outcome"] == "approve"
+                and decision["payout_amount"] > limit
+                and not signed
+            ):
+                status = "waiting_sign_off"
         return ClaimDetail(
             claim=Claim.model_validate(claim),
             policy=Policy.model_validate(policy),
@@ -101,21 +122,28 @@ class Store:
             plan=Plan.model_validate(self.get("plans", policy["plan"])),
             add_ons=[a for a in plans["add_ons"] if a["add_on"] in policy["add_ons"]],
             deductible_applies_to=plans["deductible_applies_to"],
-            approval_limit=self.get("settings", "company")["payout_approval_limit"],
-            status="waiting",
+            approval_limit=limit,
+            status=status,
+            decision=decision,
+            sign_off=signed,
+            payment=payment,
         )
 
     def queue(self) -> list[ClaimSummary]:
-        return [
-            ClaimSummary(
-                claim_id=c["claim_id"],
-                customer_name=self.get("customers", c["customer_id"])["name"],
-                summary=c["summary"],
-                claim_type=c["claim_type"],
-                amount_claimed=c["amount_claimed"],
-                status="waiting",
-                outcome="",
-                payment_status="not_applicable",
-            )
-            for c in self.all("claims")
-        ]
+        return [self.summary(c["claim_id"]) for c in self.all("claims")]
+
+    def summary(self, claim_id: str) -> ClaimSummary:
+        detail = self.detail(claim_id)
+        outcome = str(detail.decision["outcome"]) if detail.decision else ""
+        return ClaimSummary(
+            claim_id=claim_id,
+            customer_name=detail.customer.name,
+            summary=detail.claim.summary,
+            claim_type=detail.claim.claim_type,
+            amount_claimed=detail.claim.amount_claimed,
+            status=detail.status,
+            outcome=outcome,
+            payment_status="paid"
+            if detail.payment
+            else ("unpaid" if outcome == "approve" else "not_applicable"),
+        )

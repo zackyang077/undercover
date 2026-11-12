@@ -96,13 +96,13 @@ Build the financial gate before connecting a model. Store the decision, handler 
 
 Success criteria:
 
-- [ ] API tests save approve, decline, and refer outcomes with their explanations, calculations, and section references. Decline and refer become Decided with no payment; an unsigned approval above the limit becomes Waiting for sign-off.
-- [ ] Tests for `$999.99` and `$1,000.00` allow a separate payment without sign-off. `$1,000.01` is blocked with 403 and no payment row, including when requested as smaller partial payments.
-- [ ] For an isolated fixture approved at `$1,250.00`, `POST /api/claims/{claim_id}/payment` with `{"amount":1250.00}` is blocked until a valid `POST .../sign-off` with `{"handler_id":"HND-01"}`. Afterwards it records exactly one `$1,250.00` simulated payment and the claim is Decided.
-- [ ] Unknown or ineligible handlers cannot sign off. Signing off does not create a payment.
-- [ ] Payment before a decision, payment on decline/refer, mismatched amounts, nonpositive amounts, fractions of a cent, duplicate payments, and attempts to replace a saved decision are rejected without altering valid records. Concurrent payment requests cannot create two payments.
-- [ ] Decisions, sign-offs, and payments survive reopening the database. All mutation routes meet the operation ID, docstring, and required-input contract.
-- [ ] `npm run check:python` passes at the existing coverage threshold. Update `docs/STATUS.md` and commit through the pre-commit hook.
+- [x] API tests save approve, decline, and refer outcomes with their explanations, calculations, and section references. Decline and refer become Decided with no payment; an unsigned approval above the limit becomes Waiting for sign-off.
+- [x] Tests for `$999.99` and `$1,000.00` allow a separate payment without sign-off. `$1,000.01` is blocked with 403 and no payment row, including when requested as smaller partial payments.
+- [x] For an isolated fixture approved at `$1,250.00`, `POST /api/claims/{claim_id}/payment` with `{"amount":1250.00}` is blocked until a valid `POST .../sign-off` with `{"handler_id":"HND-01"}`. Afterwards it records exactly one `$1,250.00` simulated payment and the claim is Decided.
+- [x] Unknown or ineligible handlers cannot sign off. Signing off does not create a payment.
+- [x] Payment before a decision, payment on decline/refer, mismatched amounts, nonpositive amounts, fractions of a cent, duplicate payments, and attempts to replace a saved decision are rejected without altering valid records. Concurrent payment requests cannot create two payments.
+- [x] Decisions, sign-offs, and payments survive reopening the database. All mutation routes meet the operation ID, docstring, and required-input contract.
+- [x] `npm run check:python` passes at the existing coverage threshold. Update `docs/STATUS.md` and commit through the pre-commit hook.
 
 ## Phase 3 — Claim agent with backend-only tools
 

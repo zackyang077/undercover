@@ -1,6 +1,45 @@
 """Typed records shared by the claims API."""
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from decimal import Decimal
+from typing import Annotated, Literal, Self
+
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+
+Money = Annotated[Decimal, Field(ge=0, max_digits=12, decimal_places=2)]
+
+
+class DecisionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["approve", "decline", "refer"]
+    payout_amount: Money
+    explanation: Annotated[str, Field(min_length=1)]
+    calculation: Annotated[str, Field(min_length=1)]
+    policy_references: Annotated[list[str], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def consistent_payout(self) -> Self:
+        if (self.outcome == "approve") != (self.payout_amount > 0):
+            raise ValueError(
+                "Approval requires a positive payout; other outcomes require zero"
+            )
+        if any(
+            ref not in {str(i) for i in range(1, 13)} for ref in self.policy_references
+        ):
+            raise ValueError("Policy references must be section numbers 1 through 12")
+        return self
+
+
+class PaymentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount: Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=2)]
+
+
+class SignOffInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    handler_id: str
 
 
 class Record(BaseModel):

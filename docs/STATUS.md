@@ -11,3 +11,8 @@ Set `UNDERCOVER_DB` to use another database.
 
 Validation: phase 1 has five passing Python tests with 99.49% coverage.
 The dashboard and agent still have their skeleton behavior.
+
+Phase 2: final decisions, handler sign-off, and simulated payments are built.
+The backend blocks unsigned payouts above $1,000, mismatched amounts, and
+duplicate payments, including concurrent attempts. Decisions and payments persist.
+Validation: 13 Python tests pass, 99.67% coverage; full npm run check passes.
