@@ -28,3 +28,11 @@ and restart interruption are built. One active run is allowed per claim.
 Failures preserve saved decisions/payments. Runs execute in one backend process;
 there is no durable execution or automatic resumption.
 Validation: npm run check passes; 26 Python tests, 99.57% coverage.
+
+Phase 5: branded responsive claims desk, full evidence, read-only instructions,
+activity, explicit retry, and sign-off/payment flows are built. Selected claims
+survive reload via the URL. Fonts are bundled locally through Fontsource.
+Validation: 9 Vitest tests, 98.31% statement coverage; browser scenarios and
+desktop/mobile screenshots pass. Playwright MCP is unavailable, and CUA returned
+Browser access host unavailable. Manual MCP inspection remains unverified;
+automated Playwright and screenshot review were used instead.

@@ -148,13 +148,13 @@ Use a handler selector and a Sign off and pay action for over-limit approvals. I
 
 Success criteria:
 
-- [ ] Vitest covers queue/detail rendering, full story/items/documents/policy/history, decision explanation/calculation/references, activity polling, read-only instructions, and USD formatting.
-- [ ] Start agent is disabled while work is active or the claim already has a decision. Tests verify successful state refresh, failed-run retry, stopped polling after completion, and visible fetch/mutation errors without losing selected-claim context.
-- [ ] Tests show an over-limit approval as Waiting for sign-off, require a handler selection, and distinguish decision approval from payment. A declined or referred claim has no payment action.
-- [ ] Tests cover successful sign-off/payment, blocked payment, and a failed payment after successful sign-off; retrying does not record another sign-off or duplicate payment.
+- [x] Vitest covers queue/detail rendering, full story/items/documents/policy/history, decision explanation/calculation/references, activity polling, read-only instructions, and USD formatting.
+- [x] Start agent is disabled while work is active or the claim already has a decision. Tests verify successful state refresh, failed-run retry, stopped polling after completion, and visible fetch/mutation errors without losing selected-claim context.
+- [x] Tests show an over-limit approval as Waiting for sign-off, require a handler selection, and distinguish decision approval from payment. A declined or referred claim has no payment action.
+- [x] Tests cover successful sign-off/payment, blocked payment, and a failed payment after successful sign-off; retrying does not record another sign-off or duplicate payment.
 - [ ] With `npm run dev`, inspect the page using Playwright MCP at desktop and narrow mobile widths. Verify all 25 queue rows, CLM-1001's complete evidence, keyboard access, no horizontal page overflow, readable colors, and read-only instructions. Check the browser console for application errors.
-- [ ] Using a stub run in the browser, observe In progress and tool activity before the decision appears, then the final decision and payment state without manually reloading.
-- [ ] `npm run check:ts` passes with at least 80% dashboard statement coverage, and `npm run check:python` still passes. Update `docs/STATUS.md` and commit through the pre-commit hook.
+- [x] Using a stub run in the browser, observe In progress and tool activity before the decision appears, then the final decision and payment state without manually reloading.
+- [x] `npm run check:ts` passes with at least 80% dashboard statement coverage, and `npm run check:python` still passes. Update `docs/STATUS.md` and commit through the pre-commit hook.
 
 ## Phase 6 — End-to-end acceptance and handover
 
