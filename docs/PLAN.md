@@ -130,13 +130,13 @@ Run lifecycle is `running`, `completed`, `failed`, or `interrupted`. Completion 
 
 Success criteria:
 
-- [ ] `POST /api/claims/CLM-1001/runs` returns 202 with a run ID and thread ID before a deliberately delayed stub finishes. During the delay, `GET /api/claims` shows In progress.
-- [ ] A second start on the same active claim returns 409 and does not create another task. Starting a decided or sign-off-waiting claim also returns 409.
-- [ ] Polling `GET /api/claims/CLM-1001/runs` reveals ordered events while the stub is still running: start, named tool activity/results, saved decision, payment or blocked-payment result, and completion. Events remain visible after page reload or backend restart.
-- [ ] Timeout, exhausted tool steps, and provider failure produce a failed run with a useful error. Before a decision, the claim returns to Waiting and an explicit retry gets a new thread ID without deleting earlier activity.
-- [ ] Failure after recording a decision or payment retains that state and cannot cause a second decision or payment. Restart marks an unfinished run Interrupted and releases its active-run lock without automatically invoking the model.
-- [ ] `run(claim_id, thread_id)` also works when invoked directly against the running backend: activity reporting can be skipped when no run record exists, while decisions and payments still use the same API gates.
-- [ ] `npm run check:python` passes at the existing coverage threshold. Update `docs/STATUS.md` with local-process limitations and commit through the pre-commit hook.
+- [x] `POST /api/claims/CLM-1001/runs` returns 202 with a run ID and thread ID before a deliberately delayed stub finishes. During the delay, `GET /api/claims` shows In progress.
+- [x] A second start on the same active claim returns 409 and does not create another task. Starting a decided or sign-off-waiting claim also returns 409.
+- [x] Polling `GET /api/claims/CLM-1001/runs` reveals ordered events while the stub is still running: start, named tool activity/results, saved decision, payment or blocked-payment result, and completion. Events remain visible after page reload or backend restart.
+- [x] Timeout, exhausted tool steps, and provider failure produce a failed run with a useful error. Before a decision, the claim returns to Waiting and an explicit retry gets a new thread ID without deleting earlier activity.
+- [x] Failure after recording a decision or payment retains that state and cannot cause a second decision or payment. Restart marks an unfinished run Interrupted and releases its active-run lock without automatically invoking the model.
+- [x] `run(claim_id, thread_id)` also works when invoked directly against the running backend: activity reporting can be skipped when no run record exists, while decisions and payments still use the same API gates.
+- [x] `npm run check:python` passes at the existing coverage threshold. Update `docs/STATUS.md` with local-process limitations and commit through the pre-commit hook.
 
 ## Phase 5 — Handler dashboard
 

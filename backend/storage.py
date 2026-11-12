@@ -39,6 +39,17 @@ class Store:
                 "CREATE TABLE IF NOT EXISTS records "
                 "(kind TEXT, id TEXT, body TEXT NOT NULL, PRIMARY KEY(kind, id))"
             )
+            connection.executescript(
+                "CREATE TABLE IF NOT EXISTS runs ("
+                "thread_id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, "
+                "status TEXT NOT NULL, started_at TEXT NOT NULL, "
+                "finished_at TEXT NOT NULL, error TEXT NOT NULL);"
+                "CREATE UNIQUE INDEX IF NOT EXISTS one_active_run ON runs(claim_id) "
+                "WHERE status='running';"
+                "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, "
+                "thread_id TEXT NOT NULL, kind TEXT NOT NULL, tool_name TEXT NOT NULL, "
+                "text TEXT NOT NULL, created_at TEXT NOT NULL);"
+            )
             if connection.execute("SELECT 1 FROM records LIMIT 1").fetchone():
                 return
             for kind, key in SEEDS.items():
@@ -103,8 +114,11 @@ class Store:
             decision = self.find(connection, "decisions", claim_id)
             signed = self.find(connection, "sign_offs", claim_id)
             payment = self.find(connection, "payments", claim_id)
+            active = connection.execute(
+                "SELECT 1 FROM runs WHERE claim_id=? AND status='running'", (claim_id,)
+            ).fetchone()
         limit = self.get("settings", "company")["payout_approval_limit"]
-        status = "waiting"
+        status = "in_progress" if active else "waiting"
         if decision:
             status = "decided"
             if (

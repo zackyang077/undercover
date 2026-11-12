@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -37,7 +38,7 @@ def replies(amount=420, outcome="approve", attempt_payment=True):
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     with TestClient(create_app(tmp_path / "agent.sqlite3")) as client:
-        monkeypatch.setattr(main, "backend", lambda: client)
+        monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         yield client
 
 

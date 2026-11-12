@@ -22,3 +22,9 @@ tools, records a policy-based decision, and separately requests simulated paymen
 Tools are bound to one claim; no sign-off tool is exposed. Automated tests use
 scripted models only. Default model and MODEL_NAME override are tested.
 Validation: npm run check passes; 18 Python tests, 99.70% coverage.
+
+Phase 4: asynchronous local runs, incremental tool activity, explicit retries,
+and restart interruption are built. One active run is allowed per claim.
+Failures preserve saved decisions/payments. Runs execute in one backend process;
+there is no durable execution or automatic resumption.
+Validation: npm run check passes; 26 Python tests, 99.57% coverage.

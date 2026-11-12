@@ -1,13 +1,16 @@
 """The UnderCover backend."""
 
 import os
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
 from pydantic import JsonValue
 
+from agent.main import run as run_agent
 from backend.finance import Finance
+from backend.runs import Runs, routes
 from backend.schemas import (
     ClaimDetail,
     ClaimSummary,
@@ -20,17 +23,21 @@ from backend.schemas import (
 from backend.storage import Store
 
 
-def create_app(path: Path) -> FastAPI:
+def create_app(path: Path, runner: Callable[[str, str], str] = run_agent) -> FastAPI:
     """Create a backend with an isolated database location."""
     store = Store(path)
+    runs = Runs(store, runner)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         store.initialize()
+        runs.recover()
         yield
+        await runs.close()
 
     application = FastAPI(title="UnderCover", lifespan=lifespan)
     application.state.store = store
+    application.state.runs = runs
 
     @application.get("/api/health", operation_id="health")
     def health() -> dict[str, str]:
@@ -63,6 +70,7 @@ def create_app(path: Path) -> FastAPI:
         return {"content": Path(__file__).with_name("instructions.md").read_text()}
 
     application.include_router(financial_routes(store))
+    application.include_router(routes(runs))
     return application
 
 

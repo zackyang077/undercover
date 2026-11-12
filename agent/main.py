@@ -1,6 +1,7 @@
 """The UnderCover Agent, using backend HTTP tools only."""
 
 import os
+import time
 from typing import Literal
 
 import httpx
@@ -34,19 +35,29 @@ def request(method: str, path: str, body: object = None) -> dict:
     return response.json()
 
 
-def tools_for(claim_id: str) -> list[BaseTool]:
+def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
     """Bind all claim mutations to the requested claim."""
     path = f"/api/claims/{claim_id}"
+    deadline = time.monotonic() + 120
+
+    def perform(name: str, method: str, url: str, body: object = None) -> dict:
+        if time.monotonic() > deadline:
+            raise TimeoutError("Agent exceeded its two-minute work limit")
+        emit(thread_id, "tool_started", name, f"Calling {name}")
+        result = request(method, url, body)
+        text = str(result["error"]) if "error" in result else "Completed successfully"
+        emit(thread_id, "tool_result", name, text)
+        return result
 
     @tool
     def read_claim() -> dict:
         """Read this claim, all evidence, policy, plan, and customer history."""
-        return request("GET", path)
+        return perform("read_claim", "GET", path)
 
     @tool
     def read_policy_wording() -> dict:
         """Read the full policy wording and its version."""
-        return request("GET", "/api/policy-wording")
+        return perform("read_policy_wording", "GET", "/api/policy-wording")
 
     @tool
     def record_decision(
@@ -57,7 +68,8 @@ def tools_for(claim_id: str) -> list[BaseTool]:
         policy_references: list[str],
     ) -> dict:
         """Save the final decision, calculation and policy section numbers."""
-        return request(
+        return perform(
+            "record_decision",
             "POST",
             f"{path}/decision",
             {
@@ -72,9 +84,24 @@ def tools_for(claim_id: str) -> list[BaseTool]:
     @tool
     def pay_claim(amount: float) -> dict:
         """Record the full approved simulated payment; sign-off is enforced."""
-        return request("POST", f"{path}/payment", {"amount": amount})
+        return perform("pay_claim", "POST", f"{path}/payment", {"amount": amount})
 
     return [read_claim, read_policy_wording, record_decision, pay_claim]
+
+
+def emit(thread_id: str, kind: str, tool_name: str, text: str):
+    if thread_id:
+        result = request(
+            "POST",
+            f"/api/runs/{thread_id}/events",
+            {
+                "kind": kind,
+                "tool_name": tool_name,
+                "text": text,
+            },
+        )
+        if result.get("status_code") not in (None, 404):
+            raise RuntimeError("Activity could not be recorded for this run")
 
 
 def model() -> ChatOpenAI:
@@ -107,7 +134,7 @@ def run(claim_id: str, thread_id: str, llm: BaseChatModel | None = None) -> str:
     instructions = request("GET", "/api/agent/instructions")
     agent = create_agent(
         llm or model(),
-        tools=tools_for(claim_id),
+        tools=tools_for(claim_id, thread_id),
         system_prompt=instructions["content"],
     )
     result = agent.invoke(
