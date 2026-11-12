@@ -23,7 +23,7 @@ def call(name, args):
     return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": name}])
 
 
-def replies(amount=420, outcome="approve", attempt_payment=True):
+def replies(amount: float = 420, outcome: str = "approve", attempt_payment=True):
     messages = [
         call("read_claim", {}),
         call("read_policy_wording", {}),

@@ -162,15 +162,30 @@ Extend Playwright to exercise the finished system with real HTTP and temporary S
 
 Success criteria:
 
-- [ ] Playwright covers queue to claim detail to agent run to visible activity to a paid approval, plus decline and refer outcomes. Assertions check the persisted API results as well as screen text.
-- [ ] Playwright covers an over-limit approval: the page shows Waiting for sign-off, a direct payment request is blocked, a handler signs off, and exactly one simulated payment is recorded. Boundary coverage includes exactly `$1,000.00` and `$1,000.01`.
-- [ ] Playwright covers a failed run, explicit retry, and page reload preserving the decision and activity. Test setup/cleanup never resets the normal pilot database.
+- [x] Playwright covers queue to claim detail to agent run to visible activity to a paid approval, plus decline and refer outcomes. Assertions check the persisted API results as well as screen text.
+- [x] Playwright covers an over-limit approval: the page shows Waiting for sign-off, a direct payment request is blocked, a handler signs off, and exactly one simulated payment is recorded. Boundary coverage includes exactly `$1,000.00` and `$1,000.01`.
+- [x] Playwright covers a failed run, explicit retry, and page reload preserving the decision and activity. Test setup/cleanup never resets the normal pilot database.
 - [ ] Inspect the completed queue, full claim, active run, sign-off flow, decided claim, and instructions page in Playwright MCP. Confirm brand, keyboard use, mobile layout, useful error states, and no application console errors.
-- [ ] From the repo root, `uv sync` and `npm install` succeed; `npm run dev` serves the API on port 8000 and dashboard on port 5173. Document OpenRouter configuration, database location, run instructions, the sign-off flow, and test commands in `docs/STATUS.md` and a concise README update if needed. Do not overwrite the student's `.env`.
+- [x] From the repo root, `uv sync` and `npm install` succeed; `npm run dev` serves the API on port 8000 and dashboard on port 5173. Document OpenRouter configuration, database location, run instructions, the sign-off flow, and test commands in `docs/STATUS.md` and a concise README update if needed. Do not overwrite the student's `.env`.
 - [ ] Perform one separate live OpenRouter smoke run on a selected waiting queue claim through the dashboard, using the configured model. Confirm tool activity, persisted explanation/references/calculation, and correct payment gating. Record model ID and result without secrets. Provider access failure is reported as a live-validation limitation, never replaced by a claimed stub success; no evaluation files are opened.
-- [ ] Run `npm run check` successfully: ruff format/lint, pyright, pytest with at least 80% coverage, Prettier, ESLint, strict TypeScript, Vitest with at least 80% statement coverage, and Playwright. Do not lower thresholds, disable rules, or exclude files to pass.
-- [ ] Tick only verified criteria in this plan, update `docs/STATUS.md` with the final capabilities and any validation limitation, and commit the final phase with the pre-commit hook enabled. Report the final checks and live smoke result. Do not push.
+- [x] Run `npm run check` successfully: ruff format/lint, pyright, pytest with at least 80% coverage, Prettier, ESLint, strict TypeScript, Vitest with at least 80% statement coverage, and Playwright. Do not lower thresholds, disable rules, or exclude files to pass.
+- [x] Tick only verified criteria in this plan, update `docs/STATUS.md` with the final capabilities and any validation limitation, and commit the final phase with the pre-commit hook enabled. Report the final checks and live smoke result. Do not push.
 
 ## Delivery discipline
 
 During implementation, complete phases in order without stopping between them. Add tests with each change, verify every criterion, update this plan and `docs/STATUS.md`, and commit each completed phase. Use stub models for all automated tests and keep live verification separate. If a rule or threshold appears incorrect, stop and ask rather than weakening it. No AWS resources are needed for the pilot.
+
+## Verification record
+
+All six phases are implemented and the automated checks pass: 26 Python tests
+with 99.57% coverage, 9 Vitest tests with 98.31% statement coverage, and 8
+Playwright tests. Installation and the normal development servers were verified.
+Desktop/mobile screenshots and the running, decided, sign-off, failed, and
+instructions screens were reviewed from Playwright artifacts.
+
+The manual MCP criteria remain unchecked because Playwright MCP is unavailable
+and CUA returned Browser access host unavailable. Equivalent automated browser
+flows and screenshot review passed. The live-model criterion remains unchecked:
+one dashboard smoke run with openai/gpt-6-luna failed with
+OpenAIPermissionDeniedError in about 1.6 seconds, before any claim tool ran.
+No decision/payment was written and .env was preserved. See docs/STATUS.md.
