@@ -690,3 +690,60 @@ footer {
     font-size: 32px;
   }
 }
+.queue-control {
+  margin-bottom: 24px;
+}
+.queue-control-heading,
+.queue-progress-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.queue-control-heading .muted {
+  margin-top: 5px;
+}
+.queue-control-heading > button {
+  flex-shrink: 0;
+}
+.queue-progress {
+  margin-top: 20px;
+  font-size: 12px;
+}
+.queue-progress-title {
+  margin-bottom: 8px;
+}
+.queue-progress progress {
+  width: 100%;
+  height: 9px;
+  accent-color: #06a77c;
+  display: block;
+  margin-bottom: 10px;
+}
+.queue-current {
+  color: #076182;
+  background: transparent;
+  border: 0;
+  padding: 6px 0;
+  font-weight: 600;
+  font-size: 12px;
+  text-align: left;
+}
+.queue-failure {
+  color: #9f2547;
+}
+.queue-failed-item {
+  padding: 8px 0;
+}
+@media (max-width: 760px) {
+  .queue-control-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .queue-progress-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+}

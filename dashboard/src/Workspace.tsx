@@ -10,15 +10,18 @@ export function Workspace({
   handlers,
   wording,
   onChange,
+  queueRunning,
 }: Readonly<{
   claimId: string;
   handlers: Handler[];
   wording: Wording;
   onChange: () => Promise<void>;
+  queueRunning: boolean;
 }>) {
   const [detail, setDetail] = useState<ClaimDetail | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState("");
+  const [fetchError, setFetchError] = useState("");
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -34,13 +37,20 @@ export function Workspace({
         if (cancelled) return;
         setDetail(next);
         setRuns(activity);
-        if (activity.some((run) => run.status === "running")) {
+        setFetchError("");
+        if (activity.some((run) => run.status === "running") || queueRunning) {
           timer = setTimeout(() => {
             void refresh();
           }, 350);
         }
       } catch (failure) {
-        if (!cancelled) setError(message(failure));
+        if (!cancelled) {
+          setFetchError(message(failure));
+          if (queueRunning)
+            timer = setTimeout(() => {
+              void refresh();
+            }, 1500);
+        }
       }
     }
     void refresh();
@@ -48,7 +58,7 @@ export function Workspace({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [claimId, revision, onChange]);
+  }, [claimId, revision, onChange, queueRunning]);
 
   async function act(action: () => Promise<unknown>) {
     setBusy(true);
@@ -65,7 +75,7 @@ export function Workspace({
   if (!detail)
     return (
       <section className="panel" aria-live="polite">
-        {error ? <p role="alert">{error}</p> : <p>Loading claim…</p>}
+        {fetchError ? <p role="alert">{fetchError}</p> : <p>Loading claim…</p>}
       </section>
     );
   const { claim, decision } = detail;
@@ -77,6 +87,7 @@ export function Workspace({
   let startLabel = "Start agent";
   if (retryable) startLabel = "Retry agent";
   if (active) startLabel = "Agent is working";
+  if (queueRunning && !active) startLabel = "Queue is running";
   return (
     <div className="workspace">
       <section className="panel claim-heading">
@@ -100,7 +111,7 @@ export function Workspace({
           {!decision && (
             <button
               className="primary"
-              disabled={busy || active}
+              disabled={busy || active || queueRunning}
               onClick={() => {
                 void act(() => api(`/claims/${claimId}/runs`, {}));
               }}
@@ -110,9 +121,9 @@ export function Workspace({
           )}
         </div>
       </section>
-      {error && (
+      {(error || fetchError) && (
         <p className="error-banner" role="alert">
-          {error}
+          {error || fetchError}
         </p>
       )}
       <DecisionPanel

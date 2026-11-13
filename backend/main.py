@@ -10,6 +10,8 @@ from pydantic import JsonValue
 
 from agent.main import run as run_agent
 from backend.finance import Finance
+from backend.queue_runs import QueueRuns
+from backend.queue_runs import routes as queue_routes
 from backend.runs import Runs, routes
 from backend.schemas import (
     ClaimDetail,
@@ -27,17 +29,21 @@ def create_app(path: Path, runner: Callable[[str, str], str] = run_agent) -> Fas
     """Create a backend with an isolated database location."""
     store = Store(path)
     runs = Runs(store, runner)
+    queue = QueueRuns(runs)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         store.initialize()
         runs.recover()
+        queue.recover()
         yield
+        await queue.close()
         await runs.close()
 
     application = FastAPI(title="UnderCover", lifespan=lifespan)
     application.state.store = store
     application.state.runs = runs
+    application.state.queue = queue
 
     @application.get("/api/health", operation_id="health")
     def health() -> dict[str, str]:
@@ -71,6 +77,7 @@ def create_app(path: Path, runner: Callable[[str, str], str] = run_agent) -> Fas
 
     application.include_router(financial_routes(store))
     application.include_router(routes(runs))
+    application.include_router(queue_routes(queue))
     return application
 
 

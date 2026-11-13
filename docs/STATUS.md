@@ -29,6 +29,11 @@ and automated acceptance coverage. The remaining validation limits are listed be
   state before the reason and calculation. The queue shows the approved payout
   and payment/sign-off status. Claimed amounts are labeled separately, and the
   Start agent action is removed once a decision has been recorded.
+- Start queue processes all currently Waiting claims sequentially with the
+  existing agent. Progress, failures, and the current claim are shown above
+  the queue. Stop after current claim leaves the remaining claims Waiting.
+  Duplicate starts are blocked; refreshing restores progress. See
+  [QUEUE_RUN.md](QUEUE_RUN.md) for the behavior and API contract.
 
 ## Run
 
@@ -61,6 +66,11 @@ agent records approve, decline, or refer. For a payout over $1,000, choose an
 eligible handler and Sign off and pay. Selecting a handler records attribution;
 there is no sign-in in this pilot. All payments are simulated.
 
+To process the Waiting queue, choose Start queue (N). It uses the configured
+model for each captured claim, one at a time. Review progress and failures in
+the queue panel, or choose Stop after current claim to leave the rest for later.
+Claims awaiting sign-off retain their handler approval requirement.
+
 ## Validation
 
 `npm run check` runs Python formatting/lint/types/tests, TypeScript
@@ -70,15 +80,17 @@ formatting/lint/types/tests, and Playwright. Individual checks are
 The pre-commit hook is enabled. No thresholds, rules, or coverage exclusions
 were weakened. The installation commands and normal `npm run dev` were verified.
 
-Latest automated results on November 12, 2026:
+Latest automated results on November 13, 2026:
 
-- Python: 27 tests passed, 99.57% coverage.
-- Dashboard: 9 tests passed, 98.44% statement coverage.
-- Playwright: 8 tests passed, including approvals, declines, referrals, the
+- Python: 31 tests passed, 99.17% coverage.
+- Dashboard: 13 tests passed, 96.96% statement coverage.
+- Playwright: 9 tests passed, including approvals, declines, referrals, the
   $1,000 boundary, sign-off enforcement, duplicate-payment rejection, failed-run
   retry, reload persistence, keyboard access, and desktop/mobile layout.
   Approval checks also verify the payout is in the desktop viewport and appears
   before the activity history on mobile, including after a reload.
+  Queue coverage includes one-click start, duplicate rejection, stop/continue,
+  reload persistence, failure continuation, and preserved payment gating.
 
 Automated tests make no model calls. Playwright launches a dedicated scripted
 agent server on port 8010 and Vite on 5174, with a new temporary database per

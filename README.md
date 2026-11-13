@@ -14,6 +14,8 @@ _If you're looking at this in VS Code or Cursor, right-click `README.md` in the 
 
 From the repository root, run `uv sync`, `npm install`, then `npm run dev`.
 Open http://localhost:5173 to review the 25 claims and start the agent.
+Use **Start queue (N)** to process all Waiting claims sequentially, with progress
+and a **Stop after current claim** control.
 Set `OPENROUTER_API_KEY` in `.env`; `MODEL_NAME` can override the default model.
 Payments are simulated, and payouts over $1,000 require handler sign-off.
 Run `npm run check` for the full offline test suite. See [docs/STATUS.md](docs/STATUS.md)

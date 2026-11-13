@@ -48,6 +48,7 @@ function setup(
       else if (url === "/api/policy-wording") body = wording;
       else if (url === "/api/agent/instructions")
         body = { content: "Use the policy wording to decide claims." };
+      else if (url === "/api/queue/runs/current") body = null;
       else if (url.endsWith("/runs")) {
         if (init?.method === "POST") {
           runs = [structuredClone(running)];

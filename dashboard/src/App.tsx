@@ -3,6 +3,7 @@ import { api, message } from "./api";
 import type { ClaimSummary, Handler, Wording } from "./types";
 import { ClaimQueue } from "./ClaimQueue";
 import { Workspace } from "./Workspace";
+import { QueueControl } from "./QueueControl";
 import "./style.css";
 
 export function App() {
@@ -17,6 +18,15 @@ export function App() {
   const [tab, setTab] = useState("claims");
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
+  const [queueRunning, setQueueRunning] = useState(false);
+  const selectClaim = useCallback((claimId: string) => {
+    setSelected(claimId);
+    window.history.replaceState(
+      null,
+      "",
+      `?claim=${encodeURIComponent(claimId)}`,
+    );
+  }, []);
   const refreshQueue = useCallback(async () => {
     setClaims(await api<ClaimSummary[]>("/claims"));
   }, []);
@@ -128,18 +138,17 @@ export function App() {
                 </strong>
               </div>
             </section>
+            <QueueControl
+              waiting={claims.filter((c) => c.status === "waiting").length}
+              onRefresh={refreshQueue}
+              onRunningChange={setQueueRunning}
+              onSelect={selectClaim}
+            />
             <div className="desk">
               <ClaimQueue
                 claims={claims}
                 selected={selected}
-                onSelect={(claimId) => {
-                  setSelected(claimId);
-                  window.history.replaceState(
-                    null,
-                    "",
-                    `?claim=${encodeURIComponent(claimId)}`,
-                  );
-                }}
+                onSelect={selectClaim}
               />
               {claims.length > 0 && wording && (
                 <Workspace
@@ -148,6 +157,7 @@ export function App() {
                   handlers={handlers}
                   wording={wording}
                   onChange={refreshQueue}
+                  queueRunning={queueRunning}
                 />
               )}
             </div>

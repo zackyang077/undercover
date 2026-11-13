@@ -13,9 +13,9 @@ ATTEMPTS: dict[str, int] = {}
 
 
 def scripted_run(claim_id: str, thread_id: str) -> str:
-    time.sleep(0.7)
+    time.sleep(1.5 if claim_id == "CLM-1009" else 0.7)
     ATTEMPTS[claim_id] = ATTEMPTS.get(claim_id, 0) + 1
-    if claim_id == "CLM-1006" and ATTEMPTS[claim_id] == 1:
+    if claim_id in {"CLM-1006", "CLM-1010"} and ATTEMPTS[claim_id] == 1:
         raise RuntimeError("Simulated provider failure; retry this claim")
     scenarios: dict[str, tuple[float, str]] = {
         "CLM-1003": (3750, "approve"),
@@ -24,6 +24,8 @@ def scripted_run(claim_id: str, thread_id: str) -> str:
         "CLM-1006": (0, "refer"),
         "CLM-1007": (1000, "approve"),
         "CLM-1008": (1000.01, "approve"),
+        "CLM-1009": (1250, "approve"),
+        "CLM-1010": (0, "refer"),
     }
     amount, outcome = scenarios.get(claim_id, (420, "approve"))
     messages = replies(amount, outcome, attempt_payment=amount <= 1000)
