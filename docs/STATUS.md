@@ -82,8 +82,8 @@ were weakened. The installation commands and normal `npm run dev` were verified.
 
 Latest automated results on November 13, 2026:
 
-- Python: 56 tests passed, 99.17% product coverage, including 25 notebook
-  retry regression cases.
+- Python: 58 tests passed, 99.17% product coverage, including 25 notebook
+  retry regression cases and two Ark output cases.
 - Dashboard: 13 tests passed, 96.96% statement coverage.
 - Playwright: 9 tests passed, including approvals, declines, referrals, the
   $1,000 boundary, sign-off enforcement, duplicate-payment rejection, failed-run
@@ -121,6 +121,15 @@ rerunning an experiment in an existing notebook kernel. Regression tests load
 the actual notebook definitions with synthetic claims and an HTTP stub; they
 make no live model calls and do not open evaluation files. This change applies
 to the lab's LLM comparison, separately from the pilot agent's run lifecycle.
+
+## Volcengine notebook output
+
+`labs/volcengine.ipynb` raises `max_tokens` from 16 to 4,096 and renders
+`message.content` as Markdown. It prints `finish_reason` and reports when
+generation reaches a length limit. Rerun the cell to generate a new response;
+the earlier short response cannot be expanded by changing its display.
+Regression coverage uses long synthetic content with both `stop` and `length`
+responses, without calling Ark or loading local credentials.
 
 ## Live model verification
 
