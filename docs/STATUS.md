@@ -82,7 +82,8 @@ were weakened. The installation commands and normal `npm run dev` were verified.
 
 Latest automated results on November 13, 2026:
 
-- Python: 31 tests passed, 99.17% coverage.
+- Python: 56 tests passed, 99.17% product coverage, including 25 notebook
+  retry regression cases.
 - Dashboard: 13 tests passed, 96.96% statement coverage.
 - Playwright: 9 tests passed, including approvals, declines, referrals, the
   $1,000 boundary, sign-off enforcement, duplicate-payment rejection, failed-run
@@ -98,6 +99,28 @@ run. The normal database and model configuration are not used by those tests.
 The scripted outcomes are test scenarios, not evaluation answers or claims of
 model accuracy. No evaluation files were opened or used for prompt tuning.
 Screenshots are generated under `e2e/test-results/` and are ignored by git.
+
+## Week 1 Day 2 notebook retries
+
+`labs/week1day2.ipynb` now requests strict JSON and validates raw responses
+against `ClaimDecision`. Markdown-fenced JSON is unwrapped before validation;
+prose, invalid fields, empty responses, and incomplete completions get up to
+three total attempts. Validation retries include the failed output and field
+errors. Transient connection/API failures use the same budget with 1s/2s
+backoff; nested SDK retries are disabled for this call. Permanent API errors
+and refusals stop immediately.
+
+`decide(..., max_attempts=3)` returns the existing result fields plus `attempts`
+and `error`. Exhausted requests have `decision="error"`, never a fabricated
+approval, decline, or referral. Batch evaluation continues and reports its
+failure count. Cost sums all responses that report usage, including invalid
+outputs; requests without reported usage may have unreported provider charges.
+
+Rerun the imports, `ClaimDecision`, `decide`, and `run` definition cells before
+rerunning an experiment in an existing notebook kernel. Regression tests load
+the actual notebook definitions with synthetic claims and an HTTP stub; they
+make no live model calls and do not open evaluation files. This change applies
+to the lab's LLM comparison, separately from the pilot agent's run lifecycle.
 
 ## Live model verification
 
