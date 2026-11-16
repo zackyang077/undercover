@@ -9,6 +9,7 @@ from fastapi import APIRouter, FastAPI
 from pydantic import JsonValue
 
 from agent.main import run as run_agent
+from agent.queue import run_queue
 from backend.finance import Finance
 from backend.guidance import routes as guidance_routes
 from backend.queue_runs import QueueRuns
@@ -26,11 +27,15 @@ from backend.schemas import (
 from backend.storage import Store
 
 
-def create_app(path: Path, runner: Callable[[str, str], str] = run_agent) -> FastAPI:
+def create_app(
+    path: Path,
+    runner: Callable[[str, str], str] = run_agent,
+    queue_runner: Callable[[str, str], str] = run_queue,
+) -> FastAPI:
     """Create a backend with an isolated database location."""
     store = Store(path)
     runs = Runs(store, runner)
-    queue = QueueRuns(runs)
+    queue = QueueRuns(runs, queue_runner)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):

@@ -119,7 +119,7 @@ Success criteria:
 - [x] With 25 eligible fixtures, a capped start at five returns 202 and a target of five; All returns a target of 25. Zero, negative, fractional, missing, and malformed caps return 422. An empty queue or duplicate active start returns 409.
 - [x] Concurrent admission tests allow at most five distinct claims for a five-claim run, at most one active child, and one retry in the same slot. Out-of-scope and sixth-claim attempts are rejected without changing records.
 - [x] Named starts and queue starts cannot create competing active attempts for one claim. To-dos and attempt linkage survive reopening SQLite; old queue snapshots remain readable.
-- [ ] A model-supplied Done status cannot hide an unresolved claim. Completion and admission cannot race. `/openapi.json` confirms unique operation IDs and required inputs for each request variant.
+- [x] A model-supplied Done status cannot hide an unresolved claim. Completion and admission cannot race. `/openapi.json` confirms unique operation IDs and required inputs for each request variant.
 - [x] `npm run check:python` passes at the existing threshold. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
 
 ## Phase 2 — Section lookup and decision provenance
@@ -156,14 +156,14 @@ Replace the normal fixed queue loop with the queue agent. Add the planning, dele
 
 Success criteria:
 
-- [ ] A scripted parent chooses claim IDs in a different order from the API list, writes/updates its persisted to-dos, delegates sequentially, and finishes with a short summary matching backend records. Each child receives fresh context; the parent receives only compact results.
-- [ ] A five-claim stub run admits exactly five distinct eligible claims, including a retried one; the rest remain Waiting. All mode accounts for the full snapshot, and named mode processes only its requested claim.
-- [ ] A deliberately failing first claim becomes Waiting, gets a new thread for its automatic retry, and does not stop other claims. Two failed attempts set a persistent handler flag with no fake decision/payment. A later queue start/restart does not reset its budget or retry a handler-held claim.
-- [ ] Failure after saving a decision/payment preserves it and never causes a second adjudication. An approval awaiting sign-off is successfully reviewed, remains unpaid, and appears in the handler summary.
-- [ ] A stub that omits an eligible claim or leaves an unused cap slot receives the reconciliation result and processes the missed work. A stub that ignores correction cannot mark the queue Completed. Externally resolved candidates are accounted for and do not waste an available replacement slot.
-- [ ] Stop after current claim starts neither another claim nor its retry after the active helper exits. Refresh preserves progress; abrupt restart marks active work Interrupted and clears locks without launching a model. A later explicit run can retry an eligible interrupted claim within its remaining budget.
-- [ ] Queue-level permanent errors/step exhaustion preserve saved results and leave no claim In progress. Final counts distinguish decided claims, handler needs, technical failures, skipped work, and untouched claims.
-- [ ] `npm run check:python` passes. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
+- [x] A scripted parent chooses claim IDs in a different order from the API list, writes/updates its persisted to-dos, delegates sequentially, and finishes with a short summary matching backend records. Each child receives fresh context; the parent receives only compact results.
+- [x] A five-claim stub run admits exactly five distinct eligible claims, including a retried one; the rest remain Waiting. All mode accounts for the full snapshot, and named mode processes only its requested claim.
+- [x] A deliberately failing first claim becomes Waiting, gets a new thread for its automatic retry, and does not stop other claims. Two failed attempts set a persistent handler flag with no fake decision/payment. A later queue start/restart does not reset its budget or retry a handler-held claim.
+- [x] Failure after saving a decision/payment preserves it and never causes a second adjudication. An approval awaiting sign-off is successfully reviewed, remains unpaid, and appears in the handler summary.
+- [x] A stub that omits an eligible claim or leaves an unused cap slot receives the reconciliation result and processes the missed work. A stub that ignores correction cannot mark the queue Completed. Externally resolved candidates are accounted for and do not waste an available replacement slot.
+- [x] Stop after current claim starts neither another claim nor its retry after the active helper exits. Refresh preserves progress; abrupt restart marks active work Interrupted and clears locks without launching a model. A later explicit run can retry an eligible interrupted claim within its remaining budget.
+- [x] Queue-level permanent errors/step exhaustion preserve saved results and leave no claim In progress. Final counts distinguish decided claims, handler needs, technical failures, skipped work, and untouched claims.
+- [x] `npm run check:python` passes. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
 
 ## Phase 5 — Queue to-dos, section activity, and readable instructions
 

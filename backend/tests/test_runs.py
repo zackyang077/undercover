@@ -74,15 +74,16 @@ def test_failure_retry(tmp_path, error):
 
     app = create_app(tmp_path / "failed.sqlite3", runner)
     with TestClient(app) as client:
-        for expected in (1, 2):
-            assert client.post("/api/claims/CLM-1001/runs").status_code == 202
-            wait_for_run(client, "failed")
-            runs = client.get("/api/claims/CLM-1001/runs").json()
-            assert len(runs) == expected
-            assert "secret" not in runs[-1]["error"]
-            assert client.get("/api/claims").json()[0]["status"] == (
-                "waiting" if expected == 1 else "needs_handler"
-            )
+        assert client.post("/api/claims/CLM-1001/runs").status_code == 202
+        for _ in range(100):
+            if client.get("/api/claims/CLM-1001").json()["status"] == "needs_handler":
+                break
+            time.sleep(0.01)
+        runs = client.get("/api/claims/CLM-1001/runs").json()
+        assert len(runs) == 2
+        assert all(r["status"] == "failed" for r in runs)
+        assert "secret" not in runs[-1]["error"]
+        assert client.post("/api/claims/CLM-1001/runs").status_code == 409
         assert client.post("/api/claims/missing/runs").status_code == 404
         assert (
             client.post(
@@ -119,10 +120,10 @@ def test_decision_survives_failure(tmp_path, monkeypatch):
     with TestClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         client.post("/api/claims/CLM-1001/runs")
-        wait_for_run(client, "failed")
+        wait_for_run(client, "completed")
         detail = client.get("/api/claims/CLM-1001").json()
         assert detail["decision"]["outcome"] == "approve"
-        assert detail["payment"] is None
+        assert detail["payment"]["amount"] == 420
         assert client.post("/api/claims/CLM-1001/runs").status_code == 409
 
 

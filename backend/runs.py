@@ -7,7 +7,8 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from backend.finance import now
+from backend.finance import Finance, now
+from backend.schemas import PaymentInput
 from backend.storage import MAX_ATTEMPTS, Store
 
 
@@ -102,6 +103,9 @@ class Runs:
         self.store.get("claims", claim_id)
         with self.store.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            queue = self.store.find(connection, "queue_runs", "current")
+            if queue and queue["status"] == "running":
+                raise HTTPException(409, "The queue is running; wait or stop it first")
             self.begin(connection, claim_id)
         return self.list(claim_id)[-1]
 
@@ -138,13 +142,39 @@ class Runs:
                 (thread_id, status, "", error or "Agent run completed", now()),
             )
 
-    async def execute(self, claim_id: str, thread_id: str):
+    def conclude(self, claim_id: str, thread_id: str, error: str) -> Run:
+        detail = self.store.detail(claim_id)
+        if detail.decision:
+            if (
+                detail.decision["outcome"] == "approve"
+                and detail.status != "waiting_sign_off"
+                and not detail.payment
+            ):
+                Finance(self.store).pay(
+                    claim_id,
+                    PaymentInput.model_validate(
+                        {"amount": detail.decision["payout_amount"]}
+                    ),
+                )
+            error = ""
+        else:
+            error = error or "The helper finished without a recorded decision"
+        self.finish(thread_id, "failed" if error else "completed", error)
+        return next(r for r in self.list(claim_id) if r.thread_id == thread_id)
+
+    async def attempt(self, claim_id: str, thread_id: str) -> Run:
+        error = ""
         try:
             await asyncio.to_thread(self.runner, claim_id, thread_id)
-        except Exception as error:
-            self.finish(thread_id, "failed", self.error_text(error))
-        else:
-            self.finish(thread_id, "completed", "")
+        except Exception as failure:
+            error = self.error_text(failure)
+        return self.conclude(claim_id, thread_id, error)
+
+    async def execute(self, claim_id: str, thread_id: str):
+        result = await self.attempt(claim_id, thread_id)
+        if result.status == "failed" and self.store.failures(claim_id) < MAX_ATTEMPTS:
+            retry = self.start(claim_id)
+            await self.attempt(claim_id, retry.thread_id)
 
     @staticmethod
     def error_text(error: Exception) -> str:
@@ -171,10 +201,6 @@ def routes(runs: Runs) -> APIRouter:
     )
     async def start_claim_run(claim_id: str) -> Run:
         """Start the agent on one waiting claim."""
-        with runs.store.connection() as connection:
-            queue = runs.store.find(connection, "queue_runs", "current")
-        if queue and queue["status"] == "running":
-            raise HTTPException(409, "The queue is running; wait or stop it first")
         run = runs.start(claim_id)
         runs.launch(claim_id, run.thread_id)
         return run

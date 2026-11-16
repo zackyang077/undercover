@@ -1,3 +1,9 @@
+Phase 4 replaces the fixed queue loop with a queue create_agent invocation,
+backend-backed planning/delegation, one fresh helper per attempt, automatic retry,
+persistent handler handoff, and missed-claim correction. Stop/restart retain state;
+a failed parent releases orphan attempts after its worker exits. Named runs also
+retry automatically and reconcile saved decisions/payments.
+
 Phase 3 connects fresh claim helpers to section lookup and recorded section text,
 separate claim/queue instructions, bounded model retries, deadlines, and the new
 DeepSeek default. Scripted manual scenarios and lost-payment-response recovery

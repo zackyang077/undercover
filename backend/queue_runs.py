@@ -1,9 +1,8 @@
 """Run a snapshot of waiting claims sequentially in the local backend."""
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from http import HTTPStatus
 from typing import Annotated, Literal
 from uuid import uuid4
 
@@ -28,11 +27,14 @@ class CappedClaims(BaseModel):
 QueueStart = Annotated[AllClaims | CappedClaims, Body(discriminator="mode")]
 
 
+TodoStatus = Literal["pending", "in_progress", "done", "needs_handler"]
+
+
 class Todo(BaseModel):
     model_config = ConfigDict(extra="forbid")
     claim_id: str
     text: Annotated[str, Field(min_length=1, max_length=200)]
-    status: Literal["pending", "in_progress", "done", "needs_handler"]
+    status: TodoStatus
 
 
 class Todos(BaseModel):
@@ -48,6 +50,7 @@ class QueueItem(BaseModel):
     thread_id: str = ""
     status: Literal["pending", "running", "completed", "failed", "skipped"] = "pending"
     error: str = ""
+    summary: str = ""
 
 
 class QueueRun(BaseModel):
@@ -70,7 +73,8 @@ ALL_CLAIMS = AllClaims(mode="all")
 
 
 class QueueRuns:
-    def __init__(self, runs: Runs):
+    def __init__(self, runs: Runs, runner: Callable[[str, str], str] | None = None):
+        self.runner = runner
         self.runs = runs
         self.store = runs.store
         self.tasks: set[asyncio.Task] = set()
@@ -115,7 +119,7 @@ class QueueRuns:
             if current and current["status"] == "running":
                 raise HTTPException(409, "The queue is already running")
             items = [
-                QueueItem(claim_id=c.claim_id)
+                QueueItem(claim_id=c.claim_id, summary=c.summary)
                 for c in self.store.queue()
                 if c.status == "waiting"
             ]
@@ -165,6 +169,16 @@ class QueueRuns:
                 )
         return {"claim_id": claim_id, "thread_id": thread_id}
 
+    def task_status(self, claim_id: str) -> TodoStatus:
+        detail = self.store.detail(claim_id)
+        if any(r.status == "running" for r in self.runs.list(claim_id)):
+            return "in_progress"
+        if detail.status in {"needs_handler", "waiting_sign_off"}:
+            return "needs_handler"
+        if detail.decision:
+            return "needs_handler" if detail.decision["outcome"] == "refer" else "done"
+        return "pending"
+
     def write_todos(self, queue_run_id: str, request: Todos) -> QueueRun:
         with self.editing(queue_run_id) as batch:
             self.require_active(batch)
@@ -177,17 +191,43 @@ class QueueRuns:
                     409, "Tasks must preserve admitted work and the cap"
                 )
             for task in request.items:
-                detail = self.store.detail(task.claim_id)
-                if task.status == "done" and not detail.decision:
-                    raise HTTPException(409, "An undecided claim cannot be Done")
-                if task.status == "in_progress" and detail.status != "in_progress":
-                    raise HTTPException(409, "Claim has no active helper")
-                if task.status == "needs_handler" and not (
-                    detail.decision or detail.status == "needs_handler"
-                ):
-                    raise HTTPException(409, "Claim is not left for a handler")
+                if task.status != self.task_status(task.claim_id):
+                    raise HTTPException(
+                        409, "Task status must match the recorded claim"
+                    )
             batch.todos = request.items
         return batch
+
+    def finish_attempt(self, queue_run_id: str, thread_id: str, error: str) -> dict:
+        batch = self.current()
+        if not batch or batch.queue_run_id != queue_run_id:
+            raise HTTPException(404, "Queue run not found")
+        item = next((i for i in batch.items if i.thread_id == thread_id), None)
+        if not item:
+            raise HTTPException(404, "Attempt does not belong to this queue run")
+        result = self.runs.conclude(item.claim_id, thread_id, error)
+        with self.editing(queue_run_id) as batch:
+            item = next(i for i in batch.items if i.thread_id == thread_id)
+            item.status = "completed" if result.status == "completed" else "failed"
+            item.error = result.error
+            for task in batch.todos:
+                if task.claim_id == item.claim_id:
+                    task.status = self.task_status(item.claim_id)
+        detail = self.store.detail(item.claim_id)
+        decision = detail.decision
+        line = (
+            (
+                f"{decision['outcome']} ${float(str(decision['payout_amount'])):.2f}; "
+                f"{detail.status}"
+            )
+            if decision
+            else result.error
+        )
+        return {
+            "claim_id": item.claim_id,
+            "status": self.task_status(item.claim_id),
+            "summary": f"{item.claim_id}: {line}",
+        }
 
     def check(self, queue_run_id: str) -> dict:
         batch = self.current()
@@ -223,11 +263,17 @@ class QueueRuns:
         queue_run_id: str,
         status: Literal["completed", "stopped", "failed"],
         error: str = "",
+        summary: str = "",
     ):
         with self.editing(queue_run_id) as run:
+            if status == "completed" and not self.check(queue_run_id)["complete"]:
+                raise RuntimeError(
+                    "Queue finished with missed claims or pending retries"
+                )
             run.status = status
             run.finished_at = now()
             run.error = error
+            run.summary = summary
 
     def recover(self):
         current = self.current()
@@ -242,42 +288,28 @@ class QueueRuns:
                     if item.status == "running":
                         item.status = "failed"
                         item.error = "Run interrupted by backend restart"
-
-    async def process(self, queue_run_id: str, index: int, claim_id: str):
-        try:
-            claim_run = self.runs.start(claim_id)
-        except HTTPException as error:
-            if error.status_code != HTTPStatus.CONFLICT:
-                raise
-            with self.editing(queue_run_id) as batch:
-                batch.items[index].status = "skipped"
-                batch.items[index].error = str(error.detail)
-            return
-        with self.editing(queue_run_id) as batch:
-            batch.items[index].status = "running"
-            batch.items[index].thread_id = claim_run.thread_id
-        await self.runs.execute(claim_id, claim_run.thread_id)
-        result = next(
-            r for r in self.runs.list(claim_id) if r.thread_id == claim_run.thread_id
-        )
-        with self.editing(queue_run_id) as batch:
-            batch.items[index].status = (
-                "completed" if result.status == "completed" else "failed"
-            )
-            batch.items[index].error = result.error
+                for task in run.todos:
+                    task.status = self.task_status(task.claim_id)
 
     async def execute(self, batch: QueueRun):
         try:
-            for index, item in enumerate(batch.items):
-                current = self.current()
-                if current and current.stop_requested:
-                    self.finish(batch.queue_run_id, "stopped")
-                    return
-                await self.process(batch.queue_run_id, index, item.claim_id)
+            if self.runner is None:
+                raise RuntimeError("Queue agent is not configured")
+            summary = await asyncio.to_thread(
+                self.runner, batch.queue_run_id, batch.thread_id
+            )
+            current = self.current()
+            status = "stopped" if current and current.stop_requested else "completed"
+            self.finish(batch.queue_run_id, status, summary=summary)
         except Exception as error:
+            current = self.current()
+            if current:
+                for item in current.items:
+                    if item.status == "running":
+                        self.finish_attempt(
+                            batch.queue_run_id, item.thread_id, Runs.error_text(error)
+                        )
             self.finish(batch.queue_run_id, "failed", Runs.error_text(error))
-        else:
-            self.finish(batch.queue_run_id, "completed")
 
     def launch(self, batch: QueueRun):
         task = asyncio.create_task(self.execute(batch))
@@ -331,5 +363,15 @@ def routes(queue: QueueRuns) -> APIRouter:
     def check_queue(queue_run_id: str) -> dict:
         """Find missed claims and pending retries within this run's cap."""
         return queue.check(queue_run_id)
+
+    @router.post(
+        "/api/queue/runs/{queue_run_id}/attempts/{thread_id}/finish",
+        operation_id="finish_queue_attempt",
+    )
+    def finish_queue_attempt(
+        queue_run_id: str, thread_id: str, request: AttemptEnd
+    ) -> dict:
+        """Verify a helper's saved result and release its attempt lock."""
+        return queue.finish_attempt(queue_run_id, thread_id, request.error)
 
     return router
