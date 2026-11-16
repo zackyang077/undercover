@@ -53,7 +53,12 @@ def mutation(method: str, url: str, body: object, claim_path: str) -> dict:
                 return saved
         if url.endswith("/decision") and isinstance(body, dict):
             saved = detail.get("decision")
-            if saved and all(str(saved.get(k)) == str(v) for k, v in body.items()):
+            if saved and all(
+                float(saved[k]) == float(v)
+                if k == "payout_amount"
+                else saved.get(k) == v
+                for k, v in body.items()
+            ):
                 return saved
         raise
 

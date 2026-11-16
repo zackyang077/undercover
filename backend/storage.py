@@ -151,7 +151,11 @@ class Store:
 
     def customer_history(self, claim: dict) -> Customer:
         customer = self.get("customers", claim["customer_id"])
-        history = {c["claim_id"]: c for c in customer["previous_claims"]}
+        history = {
+            c["claim_id"]: c
+            for c in customer["previous_claims"]
+            if c["filed_on"] <= claim["submitted_on"]
+        }
         for other in self.all("claims"):
             if (
                 other["customer_id"] != claim["customer_id"]

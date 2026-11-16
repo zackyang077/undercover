@@ -205,3 +205,20 @@ def test_synthetic_manual_tool_flows(client, section, story, amount, outcome):
     assert saved["manual_references"] == [section]
     assert saved["outcome"] == outcome
     assert saved["payout_amount"] == amount
+
+
+def test_lost_decision_response_reconciles(client, monkeypatch):
+    original = main.request
+
+    def lost(method, path, body=None):
+        saved = original(method, path, body)
+        if method == "POST" and path.endswith("/decision"):
+            raise httpx.ReadTimeout("Response lost after saving")
+        return saved
+
+    monkeypatch.setattr(main, "request", lost)
+    tools = {t.name: t for t in main.tools_for("CLM-1001")}
+    assert tools["record_decision"].invoke(decision())["payout_amount"] == 420
+    assert (
+        client.get("/api/claims/CLM-1001").json()["decision"]["payout_cents"] == 42000
+    )

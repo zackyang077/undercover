@@ -4,7 +4,7 @@
 
 Implement `docs/HARNESS.md`: one UnderCover Agent run organizes the waiting queue, maintains a visible to-do list, delegates each claim to a fresh helper, looks up relevant policy wording and claims manual sections, recovers from failures, and finishes with a short handler summary.
 
-This is a plan for review. No product implementation, reseed, model call, or configuration change is part of this planning step. All success criteria below remain unchecked until implementation verifies them. `docs/HARNESS.md` remains the customer's brief and `docs/PLAN.md` remains the completed pilot plan.
+Implementation was authorized after review on November 16, 2026. Checkboxes record verified implementation; the separate live trial remains pending explicit data-transfer authorization. `docs/HARNESS.md` remains the customer's brief and `docs/PLAN.md` remains the completed pilot plan.
 
 ## Starting point
 
@@ -186,14 +186,14 @@ Extend the isolated Playwright server with scripted queue and claim models so br
 
 Success criteria:
 
-- [ ] Playwright covers a capped queue run with visible to-do updates and section reads, automatic first-failure retry, a twice-failed handler handoff, continuation on other claims, missed-claim correction, a short final summary, and reload persistence. Assert API records as well as screen text.
-- [ ] Browser/API regression coverage verifies named-claim work, Stop after current claim, no duplicate decisions/payments, and payment gating at $1,000.00/$1,000.01, including a direct blocked payment before handler sign-off.
-- [ ] Add/document a local reseed command using `uv run` or a `.mjs` helper that works on macOS and Windows. Exercise it on a temporary database first. It targets an explicitly chosen local SQLite file, with no model calls and no public reset API. Preserve the existing pilot database before any live trial.
+- [x] Playwright covers a capped queue run with visible to-do updates and section reads, automatic first-failure retry, a twice-failed handler handoff, continuation on other claims, missed-claim correction, a short final summary, and reload persistence. Assert API records as well as screen text.
+- [x] Browser/API regression coverage verifies named-claim work, Stop after current claim, no duplicate decisions/payments, and payment gating at $1,000.00/$1,000.01, including a direct blocked payment before handler sign-off.
+- [x] Add/document a local reseed command using `uv run` or a `.mjs` helper that works on macOS and Windows. Exercise it on a temporary database first. It targets an explicitly chosen local SQLite file, with no model calls and no public reset API. Preserve the existing pilot database before any live trial.
 - [ ] Before every live run, reseed the chosen trial database and set a cap of five, as the brief requires. Use a fresh separate trial database so existing pilot decisions/history are retained. Explicitly select `deepseek/deepseek-v4.1-flash` with low reasoning without overwriting `.env`, and use the normal dashboard/backend, not the scripted test server.
 - [ ] In that live run, observe the to-do list filling/changing, five distinct claims reviewed autonomously, fresh child attempts, section reads on each claim, persisted decisions/calculations/references/versions, correct payment/sign-off state, and a final summary. Confirm the other 20 claims remain Waiting. Record model ID, queue ID, selected claim IDs, result, and timing without credentials. A technical handler handoff/provider failure is reported honestly as a live acceptance limitation, not five successful reviews; do not launch an uncapped fallback.
-- [ ] Update `docs/SPEC.md` to include the claims manual and queue behavior; `docs/TECH_STACK.md` to describe the default model, queue/claim entry points, tools/middleware, and SQLite monitoring; and `docs/STATUS.md` with actual run/reseed commands, new behavior, checks, live result, and remaining limits. Update `docs/QUEUE_RUN.md` to replace its superseded code-ordered/no-retry contract. Leave `docs/HARNESS.md` and `docs/PLAN.md` unchanged.
-- [ ] Run `npm run check` successfully: ruff formatting/lint, pyright, pytest at 80% coverage, Prettier, ESLint, strict TypeScript, Vitest at 80% coverage, and Playwright. All automated tests use stubs and make zero model calls. Do not lower thresholds, disable rules, or exclude files to pass.
-- [ ] Tick only verified criteria in this plan, update `docs/STATUS.md`, and commit the final phase with the pre-commit hook enabled. Report the automated checks separately from live validation. Do not push.
+- [x] Update `docs/SPEC.md` to include the claims manual and queue behavior; `docs/TECH_STACK.md` to describe the default model, queue/claim entry points, tools/middleware, and SQLite monitoring; and `docs/STATUS.md` with actual run/reseed commands, new behavior, checks, live result, and remaining limits. Update `docs/QUEUE_RUN.md` to replace its superseded code-ordered/no-retry contract. Leave `docs/HARNESS.md` and `docs/PLAN.md` unchanged.
+- [x] Run `npm run check` successfully: ruff formatting/lint, pyright, pytest at 80% coverage, Prettier, ESLint, strict TypeScript, Vitest at 80% coverage, and Playwright. All automated tests use stubs and make zero model calls. Do not lower thresholds, disable rules, or exclude files to pass.
+- [x] Tick only verified criteria in this plan, update `docs/STATUS.md`, and commit the final phase with the pre-commit hook enabled. Report the automated checks separately from live validation. Do not push.
 
 ## Delivery discipline
 
@@ -202,3 +202,22 @@ After the student asks to implement, complete the six phases in order without st
 ## Planning validation
 
 On November 16, 2026, the existing `npm run check` passed: 58 Python tests with 99.17% coverage, 13 dashboard tests with 96.96% statement coverage, and 9 Playwright tests. These results establish the current build's baseline, not delivery of the harness criteria above. All automated checks used stubs; no live model run or reseed was performed during planning.
+
+## Harness verification record
+
+Five implementation phases and the automated/documentation work in phase 6 are
+verified and committed locally. The full check passes: 80 Python tests (98.06%
+coverage), 16 dashboard tests (97.23% statement coverage), and 9 Playwright tests.
+Desktop/mobile queue, handler handoff, expanded manual section, instructions,
+and financial-flow screenshots were inspected. Playwright MCP is unavailable;
+no MCP inspection is claimed. Evaluation files were not opened.
+
+The reseed CLI was tested with a temporary database and backup, then used to
+prepare a separate live-trial database. The normal backend/dashboard were started
+with the requested DeepSeek default without changing `.env`. Automatic approval
+review rejected starting the five-claim run because it would transmit claim and
+customer records to DeepSeek through OpenRouter without explicit authorization
+for that payload/destination. The prepared database has 25 claims, zero queue
+runs, zero claim attempts, and zero decisions. The two live criteria stay unchecked;
+no live-model success, timing, or accuracy result is claimed. The student's normal
+database and notebook edits were preserved. Nothing was pushed.

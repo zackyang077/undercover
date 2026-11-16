@@ -1,69 +1,38 @@
-Phase 5 adds All/limited controls (five-claim trial by default), persisted to-dos,
-handler needs, run summaries, expandable section text, and both instruction sets.
-The 16 dashboard tests and 9 Playwright scenarios pass; desktop/mobile queue and
-section screenshots were inspected. Playwright MCP is unavailable, so automated
-Playwright and screenshot inspection provide the browser validation.
-
-Phase 4 replaces the fixed queue loop with a queue create_agent invocation,
-backend-backed planning/delegation, one fresh helper per attempt, automatic retry,
-persistent handler handoff, and missed-claim correction. Stop/restart retain state;
-a failed parent releases orphan attempts after its worker exits. Named runs also
-retry automatically and reconcile saved decisions/payments.
-
-Phase 3 connects fresh claim helpers to section lookup and recorded section text,
-separate claim/queue instructions, bounded model retries, deadlines, and the new
-DeepSeek default. Scripted manual scenarios and lost-payment-response recovery
-pass without model calls.
-
-## Harness implementation progress
-
-Phase 1 adds typed All/capped queue requests, persisted to-dos, atomic cap admission,
-claim locks, and a two-failure handler state. Existing databases upgrade without
-reseeding; old pilot failures do not consume the new attempt budget. Phase 2 adds versioned manual/wording section lookup, validated manual references,
-decision provenance, and deduplicated platform claim history. Python checks pass
-with 68 tests and 98.62% coverage. Section-read logging is connected in phase 3;
-agent-led execution and automatic retry follow.
-
 # Status
 
-The Week 1 Day 3 claims pilot is implemented locally. All six phases have code
-and automated acceptance coverage. The remaining validation limits are listed below.
+The harness is implemented locally. Automated acceptance and desktop/mobile
+screenshot review pass. The five-claim live-model acceptance trial is pending
+explicit authorization for the external data transfer; it has not started.
 
 ## Built
 
-- FastAPI read APIs serve the 25 queue claims, full evidence, linked policies,
-  plans/add-ons, customer history, handlers, policy wording, and agent instructions.
-- SQLite seeds once and persists decisions, sign-offs, simulated payments, runs,
-  and activity. Imports use an explicit allowlist; evaluation and manual files
-  are never loaded. No arbitrary business-file access is exposed.
-- The backend requires sign-off for approved payouts greater than $1,000.
-  Exactly $1,000 does not require it. Payment is a separate operation requiring
-  the full approved amount; transactions block duplicate and concurrent payments.
-- `agent.main.run(claim_id, thread_id)` uses LangChain `create_agent` with
-  backend-only tools. Instructions and policy wording come from the API.
-  The agent has no sign-off tool and cannot target another claim through its tools.
-- Background runs publish ordered tool activity. Failed attempts can be retried
-  explicitly before a decision. A restart marks unfinished runs Interrupted;
-  there is no durable execution or automatic resumption.
-- The responsive dashboard shows the queue, complete claim evidence, decision
-  explanation/calculation/references, activity, and read-only instructions.
-  Handler sign-off and simulated payment use separate API calls. A failed payment
-  after sign-off can be retried without another sign-off. The selected claim
-  survives reload through the URL. Brand fonts are bundled locally.
-- Approved claims show a full-width result card above evidence and activity,
-  with a prominent approval heading, approved payout, and simulated payment
-  state before the reason and calculation. The queue shows the approved payout
-  and payment/sign-off status. Claimed amounts are labeled separately, and the
-  Start agent action is removed once a decision has been recorded.
-- Start queue processes all currently Waiting claims sequentially with the
-  existing agent. Progress, failures, and the current claim are shown above
-  the queue. Stop after current claim leaves the remaining claims Waiting.
-  Duplicate starts are blocked; refreshing restores progress. See
-  [QUEUE_RUN.md](QUEUE_RUN.md) for the behavior and API contract.
+- One queue `create_agent` invocation chooses claim order, writes visible to-dos,
+  delegates each claim to a fresh helper, and checks for missed work before finishing.
+- All waiting claims or a positive distinct-claim cap can be selected. The default
+  UI choice is a five-claim trial. Retries consume the same slot; the backend
+  enforces scope/cap/locks transactionally. Stop finishes only the active helper.
+- A failed undecided claim returns to Waiting and gets one fresh automatic retry.
+  Two failures leave it for a handler, distinct from a policy referral or financial
+  sign-off. Failure counts survive subsequent starts/restarts; old pilot failures
+  do not retroactively consume the new budget. Named-claim runs share these rules.
+- Helpers read evidence/history through HTTP and search/read relevant numbered
+  manual and wording sections. Claim activity preserves section titles, versions,
+  and complete text. The instructions page shows both queue and claim instructions.
+- New decisions include policy/manual references, versions, and agent attribution.
+  Older decisions remain readable. Customer history includes platform claims with
+  deduplicated IDs and filing dates, excluding the current claim and future filings.
+- SQLite retains decisions, sign-offs, payments, attempts, activity, and latest
+  queue monitoring. Existing databases upgrade without reseeding. Restart marks
+  active work Interrupted and releases locks; no agent resumes automatically.
+- Separate simulated-payment operations still require the full approved amount.
+  Exactly $1,000 needs no sign-off; $1,000.01 does. Only a handler can sign off.
+  Saved decisions/payments are reconciled after errors rather than repeated.
+- The responsive claims desk preserves the prominent decision/payout result,
+  evidence, handler actions, selected-claim URL, and bundled brand fonts.
 
 ## Run
 
-Use Python 3.12, uv, and Node 26. From the repository root:
+From the repository root, with Python 3.12, uv, and Node 26:
 
 ```text
 uv sync
@@ -71,60 +40,84 @@ npm install
 npm run dev
 ```
 
-- Dashboard: http://localhost:5173
-- Backend health: http://127.0.0.1:8000/api/health
-- API documentation: http://127.0.0.1:8000/docs
+Dashboard: http://localhost:5173. Backend: http://127.0.0.1:8000/api/health.
+API docs: http://127.0.0.1:8000/docs.
 
-Keep `OPENROUTER_API_KEY` in `.env`. The current local configuration is
-`MODEL_NAME=x-ai/grok-4.7`, using Grok 4.7 through OpenRouter. Model overrides
-do not force a reasoning setting. If `MODEL_NAME` is unset, the course fallback
-is `openai/gpt-6-luna` with low reasoning effort. Restart the backend after
-changing `.env`.
+Keep `OPENROUTER_API_KEY` in `.env`. Both agent roles default to
+`deepseek/deepseek-v4.1-flash` with low reasoning effort through OpenRouter.
+`MODEL_NAME` still overrides that selection; another override does not receive a
+forced reasoning setting. Existing `.env` values were preserved. Restart the
+backend after changing environment variables.
 
-`UNDERCOVER_DB` selects the SQLite file; the default is `undercover.sqlite3` in
-this directory, ignored by git. `BACKEND_URL` selects the agent's HTTP backend
-and the Vite API proxy; its default is `http://127.0.0.1:8000`.
-These environment variables can be set before launching the process. Keep the
-normal database when restarting to retain the pilot's records.
+`UNDERCOVER_DB` selects the SQLite file (default `undercover.sqlite3`).
+`BACKEND_URL` selects the agent HTTP backend and Vite proxy (default
+`http://127.0.0.1:8000`). The normal database was not reseeded for this build.
 
-Select a Waiting claim and choose Start agent. Follow the activity until the
-agent records approve, decline, or refer. For a payout over $1,000, choose an
-eligible handler and Sign off and pay. Selecting a handler records attribution;
-there is no sign-in in this pilot. All payments are simulated.
+Use Limited trial and Claim limit, or All waiting claims, then Start queue.
+Follow the to-do list and select any task to inspect its claim. Start agent still
+works for a named Waiting claim. Left for a handler means automatic processing
+has stopped; inspect its attempts. Over-limit approvals retain Sign off and pay.
+All payments are simulated. See [QUEUE_RUN.md](QUEUE_RUN.md) for API behavior.
 
-To process the Waiting queue, choose Start queue (N). It uses the configured
-model for each captured claim, one at a time. Review progress and failures in
-the queue panel, or choose Stop after current claim to leave the rest for later.
-Claims awaiting sign-off retain their handler approval requirement.
+## Reseeding and live trials
+
+Stop the server using the selected database first. The explicit-path command
+preserves an existing database in a timestamped `.bak` file, then seeds 25 Waiting
+claims. Test data and pilot records must use different database files.
+
+```text
+uv run -m backend.reseed harness-trial.sqlite3
+```
+
+For a live trial, reseed first, explicitly choose the default model if `.env`
+overrides it, and use a cap of five. On macOS/zsh:
+
+```sh
+UNDERCOVER_DB=harness-trial.sqlite3 MODEL_NAME=deepseek/deepseek-v4.1-flash npm run dev
+```
+
+On Windows/PowerShell:
+
+```powershell
+$env:UNDERCOVER_DB = "harness-trial.sqlite3"
+$env:MODEL_NAME = "deepseek/deepseek-v4.1-flash"
+npm run dev
+```
 
 ## Validation
 
-`npm run check` runs Python formatting/lint/types/tests, TypeScript
-formatting/lint/types/tests, and Playwright. Individual checks are
-`npm run check:python`, `npm run check:ts`, and `npm run e2e`.
+`npm run check` runs ruff formatting/lint, pyright, pytest, Prettier, ESLint,
+strict TypeScript, Vitest, and Playwright. Coverage thresholds remain at 80%.
+The pre-commit hook stays enabled; no checks/rules/exclusions were weakened.
 
-The pre-commit hook is enabled. No thresholds, rules, or coverage exclusions
-were weakened. The installation commands and normal `npm run dev` were verified.
+On November 16, 2026, `npm run check` passed: 80 Python tests with 98.06%
+coverage, 16 dashboard tests with 97.23% statement coverage, and 9 Playwright tests.
 
-Latest automated results on November 13, 2026:
+The browser scenarios use an isolated temporary SQLite database and scripted
+queue/claim models on ports 8010/5174. They exercise cap enforcement, model-chosen
+order, missed-work correction, retries, handler handoff, stop, reload, section
+reads, responsive layout, sign-off, and duplicate-payment rejection. Unit tests
+cover the additional failure, deadline, migration, and concurrency cases.
+Automated tests make no model calls. No evaluation files were opened.
 
-- Python: 58 tests passed, 99.17% product coverage, including 25 notebook
-  retry regression cases and two Ark output cases.
-- Dashboard: 13 tests passed, 96.96% statement coverage.
-- Playwright: 9 tests passed, including approvals, declines, referrals, the
-  $1,000 boundary, sign-off enforcement, duplicate-payment rejection, failed-run
-  retry, reload persistence, keyboard access, and desktop/mobile layout.
-  Approval checks also verify the payout is in the desktop viewport and appears
-  before the activity history on mobile, including after a reload.
-  Queue coverage includes one-click start, duplicate rejection, stop/continue,
-  reload persistence, failure continuation, and preserved payment gating.
+Playwright MCP is unavailable. Automated Playwright interactions and screenshot
+inspection cover desktop/mobile queue, active/finished work, handler needs,
+section text, instructions, and financial flows; no MCP inspection is claimed.
 
-Automated tests make no model calls. Playwright launches a dedicated scripted
-agent server on port 8010 and Vite on 5174, with a new temporary database per
-run. The normal database and model configuration are not used by those tests.
-The scripted outcomes are test scenarios, not evaluation answers or claims of
-model accuracy. No evaluation files were opened or used for prompt tuning.
-Screenshots are generated under `e2e/test-results/` and are ignored by git.
+## Live acceptance status
+
+A fresh separate trial database was prepared at
+`/private/tmp/undercover-harness-live.sqlite3` with the normal backend/dashboard
+and the requested default model. Automatic approval review rejected starting
+the capped run because transmitting claim/customer records to DeepSeek through
+OpenRouter requires explicit payload/destination authorization. No queue run or
+model request was started; all 25 trial claims remain Waiting. The temporary
+trial servers were stopped after this verification. There is no live
+harness accuracy, timing, or five-claim success result to report yet.
+
+This is a local single-process build. Evaluation tooling, authentication,
+customer messaging, real payments, durable execution, and cloud deployment
+remain outside scope. No AWS resources were created or deleted.
 
 ## Week 1 Day 2 notebook retries
 
@@ -156,30 +149,3 @@ generation reaches a length limit. Rerun the cell to generate a new response;
 the earlier short response cannot be expanded by changing its display.
 Regression coverage uses long synthetic content with both `stop` and `length`
 responses, without calling Ark or loading local credentials.
-
-## Live model verification
-
-The local configuration was changed to `x-ai/grok-4.7` at the student's request.
-A new run on CLM-1001 through the normal dashboard completed in about 25.6
-seconds on November 12, 2026. It called `read_claim`, `read_policy_wording`,
-`record_decision`, and `pay_claim`, with activity persisted throughout.
-
-The agent approved $420.00: hotel $245.00, meals $95.00, and taxis $80.00.
-Its three-sentence explanation cited policy sections 1, 3, 10, and 11, applied
-the six-hour Premium waiting period and $800 Trip Delay maximum, and recognized
-continued coverage on the delayed return journey. A separate $420.00 simulated
-payment was recorded. This is one successful live smoke case, not an aggregate
-accuracy evaluation. Earlier failed runs remain in the claim's history.
-
-Run ID: `bcfa4ddc-9b24-4fed-8d03-1aef0d638068`.
-The `.env` change only sets `MODEL_NAME`; credentials were preserved.
-
-## Validation limits
-
-- Playwright MCP is not available. The CUA browser tool returned
-  `The browser access host is unavailable`. Automated Playwright interactions,
-  console-error assertions, and screenshot review were completed instead;
-  the plan's manual MCP inspection criteria remain unchecked.
-- This is a local, single-process pilot. The claims manual, evaluation runner,
-  authentication, real payments, customer messaging, and cloud deployment are
-  outside scope. No AWS resources were created or deleted.

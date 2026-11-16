@@ -3,13 +3,17 @@ import time
 from contextlib import nullcontext
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from agent import main
 from agent.tests.test_agent import StubModel, replies
+from backend.finance import Finance
 from backend.main import create_app
 from backend.runs import Runs
+from backend.schemas import DecisionInput
 from backend.storage import Store
+from backend.tests.test_finance import decision
 
 
 @pytest.mark.parametrize("amount", [420, 1250])
@@ -142,3 +146,25 @@ def test_agent_deadline_and_inactive_logging(tmp_path, monkeypatch):
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         with pytest.raises(RuntimeError, match="Activity"):
             main.emit(run.thread_id, "tool_started", "read_claim", "Read")
+
+
+def test_payment_reconciliation_preserves_decision_and_releases_lock(
+    tmp_path, monkeypatch
+):
+    app = create_app(tmp_path / "payment-failure.sqlite3")
+    with TestClient(app):
+        runs = app.state.runs
+        started = runs.start("CLM-1001")
+        Finance(app.state.store).decide(
+            "CLM-1001", DecisionInput.model_validate(decision())
+        )
+
+        def blocked(*args):
+            raise HTTPException(409, "Payment unavailable")
+
+        monkeypatch.setattr(Finance, "pay", blocked)
+        result = runs.conclude("CLM-1001", started.thread_id, "Response lost")
+        assert result.status == "failed"
+        assert "payment needs handler" in result.error
+        assert app.state.queue.task_status("CLM-1001") == "needs_handler"
+        assert app.state.store.detail("CLM-1001").decision is not None

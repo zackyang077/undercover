@@ -273,6 +273,15 @@ class QueueRuns:
                 raise RuntimeError(
                     "Queue finished with missed claims or pending retries"
                 )
+            for item in run.items:
+                if (
+                    item.claim_id not in run.admitted
+                    and item.status == "pending"
+                    and self.store.detail(item.claim_id).status
+                    not in {"waiting", "in_progress"}
+                ):
+                    item.status = "skipped"
+                    item.error = "Claim resolved outside this run"
             run.status = status
             run.finished_at = now()
             run.error = error

@@ -57,6 +57,9 @@ labs/undercoverlab/agentcore/aws-targets.json
 *.db
 *.sqlite
 *.sqlite3
+*.sqlite3.*.bak
+*.sqlite.*.bak
+*.db.*.bak
 qdrant_data/
 
 # Claims desks made by the Week 1 Day 5 labs
