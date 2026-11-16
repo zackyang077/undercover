@@ -1,3 +1,10 @@
+## Harness implementation progress
+
+Phase 1 adds typed All/capped queue requests, persisted to-dos, atomic cap admission,
+claim locks, and a two-failure handler state. Existing databases upgrade without
+reseeding; old pilot failures do not consume the new attempt budget. Agent-led
+execution and automatic retry are the next phases.
+
 # Status
 
 The Week 1 Day 3 claims pilot is implemented locally. All six phases have code

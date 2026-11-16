@@ -29,7 +29,9 @@ test("one-click queue processing survives reload, stops safely, and continues af
   const control = page.getByRole("region", { name: "Queue processing" });
   await control.getByRole("button", { name: "Start queue (3)" }).click();
   await expect(control.getByText("Processing queue")).toBeVisible();
-  const duplicate = await request.post("/api/queue/runs");
+  const duplicate = await request.post("/api/queue/runs", {
+    data: { mode: "all" },
+  });
   expect(duplicate.status()).toBe(409);
   await page.reload();
   await expect(control.getByText("Processing queue")).toBeVisible();

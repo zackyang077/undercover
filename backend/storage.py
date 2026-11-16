@@ -17,6 +17,7 @@ SEEDS = {
     "customers": "customer_id",
     "handlers": "handler_id",
 }
+MAX_ATTEMPTS = 2
 COMPANY_FIELDS = ("name", "currency", "payout_approval_limit", "policy_wording_version")
 
 
@@ -46,6 +47,8 @@ class Store:
                 "finished_at TEXT NOT NULL, error TEXT NOT NULL);"
                 "CREATE UNIQUE INDEX IF NOT EXISTS one_active_run ON runs(claim_id) "
                 "WHERE status='running';"
+                "CREATE TABLE IF NOT EXISTS harness_attempts "
+                "(thread_id TEXT PRIMARY KEY);"
                 "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, "
                 "thread_id TEXT NOT NULL, kind TEXT NOT NULL, tool_name TEXT NOT NULL, "
                 "text TEXT NOT NULL, created_at TEXT NOT NULL);"
@@ -118,7 +121,10 @@ class Store:
                 "SELECT 1 FROM runs WHERE claim_id=? AND status='running'", (claim_id,)
             ).fetchone()
         limit = self.get("settings", "company")["payout_approval_limit"]
+        failures = self.failures(claim_id)
         status = "in_progress" if active else "waiting"
+        if not active and failures >= MAX_ATTEMPTS:
+            status = "needs_handler"
         if decision:
             status = "decided"
             if (
@@ -142,6 +148,18 @@ class Store:
             sign_off=signed,
             payment=payment,
         )
+
+    def failures(self, claim_id: str) -> int:
+        with self.connection() as connection:
+            return self.failure_count(connection, claim_id)
+
+    @staticmethod
+    def failure_count(connection, claim_id: str) -> int:
+        return connection.execute(
+            "SELECT count(*) FROM runs JOIN harness_attempts USING(thread_id) "
+            "WHERE claim_id=? AND status IN ('failed','interrupted')",
+            (claim_id,),
+        ).fetchone()[0]
 
     def queue(self) -> list[ClaimSummary]:
         return [self.summary(c["claim_id"]) for c in self.all("claims")]

@@ -80,7 +80,9 @@ def test_failure_retry(tmp_path, error):
             runs = client.get("/api/claims/CLM-1001/runs").json()
             assert len(runs) == expected
             assert "secret" not in runs[-1]["error"]
-            assert client.get("/api/claims").json()[0]["status"] == "waiting"
+            assert client.get("/api/claims").json()[0]["status"] == (
+                "waiting" if expected == 1 else "needs_handler"
+            )
         assert client.post("/api/claims/missing/runs").status_code == 404
         assert (
             client.post(

@@ -70,7 +70,7 @@ def test_sequential_queue_skips_decisions_and_continues_after_failure(
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         assert client.get(CURRENT).json() is None
         restrict_queue(app.state.store, {"CLM-1001", "CLM-1002", "CLM-1003"})
-        response = client.post("/api/queue/runs")
+        response = client.post("/api/queue/runs", json={"mode": "all"})
         assert response.status_code == 202
         assert [i["claim_id"] for i in response.json()["items"]] == [
             "CLM-1001",
@@ -78,7 +78,7 @@ def test_sequential_queue_skips_decisions_and_continues_after_failure(
             "CLM-1003",
         ]
         assert entered.wait(5)
-        assert client.post("/api/queue/runs").status_code == 409
+        assert client.post("/api/queue/runs", json={"mode": "all"}).status_code == 409
         release.set()
         saved = wait_for_queue(client, "completed")
         assert [i["status"] for i in saved["items"]] == [
@@ -121,7 +121,7 @@ def test_stop_finishes_current_and_skips_claim_decided_by_another_caller(
     with TestClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         restrict_queue(app.state.store, {"CLM-1001", "CLM-1002", "CLM-1003"})
-        created = client.post("/api/queue/runs").json()
+        created = client.post("/api/queue/runs", json={"mode": "all"}).json()
         assert entered.wait(5)
         stopped = client.post(f"/api/queue/runs/{created['queue_run_id']}/stop")
         assert stopped.json()["stop_requested"] is True
@@ -162,7 +162,7 @@ def test_empty_active_and_restart_queue(tmp_path):
             == active.thread_id
         )
         restrict_queue(store, set())
-        assert client.post("/api/queue/runs").status_code == 409
+        assert client.post("/api/queue/runs", json={"mode": "all"}).status_code == 409
 
 
 def test_shutdown_stops_after_current_claim(tmp_path, monkeypatch):
@@ -185,7 +185,7 @@ def test_shutdown_stops_after_current_claim(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app.state.queue, "stop", stop)
     with TestClient(app) as client:
-        client.post("/api/queue/runs")
+        client.post("/api/queue/runs", json={"mode": "all"})
         assert entered.wait(5)
     assert visited == ["CLM-1001"]
     assert app.state.queue.current().status == "stopped"

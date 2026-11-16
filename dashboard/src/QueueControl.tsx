@@ -130,7 +130,10 @@ export function QueueControl({
     setBusy(true);
     setError("");
     try {
-      const next = await api<QueueRun>(path, {});
+      const next = await api<QueueRun>(
+        path,
+        path === "/queue/runs" ? { mode: "all" } : {},
+      );
       setRun(next);
       onRunningChange(next.status === "running");
       if (path === "/queue/runs") onSelect(next.items[0].claim_id);

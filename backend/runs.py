@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from backend.finance import now
-from backend.storage import Store
+from backend.storage import MAX_ATTEMPTS, Store
 
 
 class EventInput(BaseModel):
@@ -75,26 +75,34 @@ class Runs:
                 for row in rows
             ]
 
+    def begin(self, connection, claim_id: str) -> str:
+        active = connection.execute(
+            "SELECT 1 FROM runs WHERE claim_id=? AND status='running'", (claim_id,)
+        ).fetchone()
+        if active or self.store.find(connection, "decisions", claim_id):
+            raise HTTPException(
+                409, "Claim already has active work or a final decision"
+            )
+        if self.store.failure_count(connection, claim_id) >= MAX_ATTEMPTS:
+            raise HTTPException(409, "Claim is left for a handler after two failures")
+        thread_id = str(uuid4())
+        connection.execute(
+            "INSERT INTO runs VALUES (?, ?, 'running', ?, '', '')",
+            (thread_id, claim_id, now()),
+        )
+        connection.execute("INSERT INTO harness_attempts VALUES (?)", (thread_id,))
+        connection.execute(
+            "INSERT INTO events(thread_id,kind,tool_name,text,created_at) "
+            "VALUES(?,'started','','Agent run started',?)",
+            (thread_id, now()),
+        )
+        return thread_id
+
     def start(self, claim_id: str) -> Run:
         self.store.get("claims", claim_id)
-        thread_id = str(uuid4())
         with self.store.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            active = connection.execute(
-                "SELECT 1 FROM runs WHERE claim_id=? AND status='running'", (claim_id,)
-            ).fetchone()
-            if active or self.store.find(connection, "decisions", claim_id):
-                raise HTTPException(
-                    409, "Claim already has active work or a final decision"
-                )
-            connection.execute(
-                "INSERT INTO runs VALUES (?, ?, 'running', ?, '', '')",
-                (thread_id, claim_id, now()),
-            )
-        self.event(
-            thread_id,
-            EventInput(kind="started", tool_name="", text="Agent run started"),
-        )
+            self.begin(connection, claim_id)
         return self.list(claim_id)[-1]
 
     def event(self, thread_id: str, event: EventInput) -> dict[str, str]:
@@ -117,11 +125,13 @@ class Runs:
     def finish(self, thread_id: str, status: str, error: str):
         with self.store.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE runs SET status=?, finished_at=?, error=? "
                 "WHERE thread_id=? AND status='running'",
                 (status, now(), error, thread_id),
             )
+            if not changed.rowcount:
+                return
             connection.execute(
                 "INSERT INTO events(thread_id,kind,tool_name,text,created_at) "
                 "VALUES(?,?,?,?,?)",
@@ -161,6 +171,10 @@ def routes(runs: Runs) -> APIRouter:
     )
     async def start_claim_run(claim_id: str) -> Run:
         """Start the agent on one waiting claim."""
+        with runs.store.connection() as connection:
+            queue = runs.store.find(connection, "queue_runs", "current")
+        if queue and queue["status"] == "running":
+            raise HTTPException(409, "The queue is running; wait or stop it first")
         run = runs.start(claim_id)
         runs.launch(claim_id, run.thread_id)
         return run
