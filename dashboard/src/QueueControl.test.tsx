@@ -11,6 +11,13 @@ import type { QueueRun } from "./types";
 
 const initial: QueueRun = {
   queue_run_id: "queue-1",
+  target: 2,
+  mode: "all",
+  admitted: ["CLM-1001"],
+  summary: "",
+  todos: [
+    { claim_id: "CLM-1001", text: "Review the claim", status: "in_progress" },
+  ],
   status: "running",
   stop_requested: false,
   created_at: "2026-11-13T08:00:00Z",
@@ -57,6 +64,9 @@ it("starts waiting claims with one action, displays progress, and stops after th
       onSelect={select}
     />,
   );
+  fireEvent.change(screen.getByLabelText("Run scope"), {
+    target: { value: "all" },
+  });
   const start = screen.getByRole("button", { name: "Start queue (2)" });
   await waitFor(() => {
     expect(start).toHaveProperty("disabled", false);
@@ -94,6 +104,13 @@ it("restores the latest progress and exposes failed and skipped claims", async (
   const completed: QueueRun = {
     ...initial,
     status: "completed",
+    todos: [
+      {
+        claim_id: "CLM-1001",
+        text: "Review the claim",
+        status: "needs_handler",
+      },
+    ],
     items: [
       { ...initial.items[0], status: "failed", error: "Provider unavailable" },
       { ...initial.items[1], status: "skipped", error: "Already decided" },
@@ -182,4 +199,42 @@ it("recovers monitoring after a queue progress fetch failure", async () => {
     },
     { timeout: 2500 },
   );
+});
+
+it("validates trial caps and submits the selected scope without choosing a claim", async () => {
+  const bodies: unknown[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/queue/runs") {
+        bodies.push(JSON.parse(init?.body as string) as unknown);
+        return Promise.resolve(Response.json({ ...initial, target: 1 }));
+      }
+      return Promise.resolve(Response.json(null));
+    }),
+  );
+  render(
+    <QueueControl
+      waiting={25}
+      onRefresh={refresh}
+      onRunningChange={running}
+      onSelect={select}
+    />,
+  );
+  const limit = screen.getByLabelText("Claim limit");
+  await waitFor(() => {
+    expect(
+      screen.getByRole("button", { name: "Start queue (5)" }),
+    ).toHaveProperty("disabled", false);
+  });
+  fireEvent.change(limit, { target: { value: "0" } });
+  expect(
+    screen.getByRole("button", { name: "Start queue (0)" }),
+  ).toHaveProperty("disabled", true);
+  fireEvent.change(limit, { target: { value: "1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Start queue (1)" }));
+  await waitFor(() => {
+    expect(bodies).toEqual([{ mode: "capped", max_claims: 1 }]);
+  });
+  expect(select).not.toHaveBeenCalled();
 });

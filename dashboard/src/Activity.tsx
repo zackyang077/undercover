@@ -1,6 +1,25 @@
 import { label } from "./api";
 import type { Run } from "./types";
 
+function SectionRead({ text }: Readonly<{ text: string }>) {
+  const section = JSON.parse(text) as {
+    document: string;
+    version: string;
+    section_id: string;
+    title: string;
+    content: string;
+  };
+  return (
+    <details className="section-read">
+      <summary>
+        {label(section.document)} section {section.section_id}: {section.title}{" "}
+        · Version {section.version}
+      </summary>
+      <pre>{section.content}</pre>
+    </details>
+  );
+}
+
 export function Activity({ runs }: Readonly<{ runs: Run[] }>) {
   return (
     <section className="panel activity" aria-label="Agent activity">
@@ -32,9 +51,15 @@ export function Activity({ runs }: Readonly<{ runs: Run[] }>) {
                       ? label(event.tool_name)
                       : label(event.kind)}
                   </strong>
-                  <p>
-                    {event.kind === "tool_started" ? "In progress" : event.text}
-                  </p>
+                  {event.kind === "section_read" ? (
+                    <SectionRead text={event.text} />
+                  ) : (
+                    <p>
+                      {event.kind === "tool_started"
+                        ? "In progress"
+                        : event.text}
+                    </p>
+                  )}
                   <time dateTime={event.created_at}>
                     {new Date(event.created_at).toLocaleTimeString("en-US")}
                   </time>

@@ -1,5 +1,5 @@
 export type QueueStatus =
-  "waiting" | "in_progress" | "waiting_sign_off" | "decided";
+  "waiting" | "in_progress" | "waiting_sign_off" | "decided" | "needs_handler";
 export interface ClaimSummary {
   claim_id: string;
   customer_name: string;
@@ -22,6 +22,10 @@ export interface Decision {
   explanation: string;
   calculation: string;
   policy_references: string[];
+  manual_references?: string[];
+  manual_version?: string;
+  wording_version?: string;
+  decided_by?: string;
 }
 export interface ClaimDetail {
   claim: {
@@ -96,8 +100,18 @@ export interface Wording {
   content: string;
 }
 
+export interface Todo {
+  claim_id: string;
+  text: string;
+  status: "pending" | "in_progress" | "done" | "needs_handler";
+}
 export interface QueueRun {
   queue_run_id: string;
+  target: number;
+  mode: "all" | "capped";
+  admitted: string[];
+  todos: Todo[];
+  summary: string;
   status: "running" | "completed" | "stopped" | "interrupted" | "failed";
   stop_requested: boolean;
   created_at: string;

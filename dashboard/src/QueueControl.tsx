@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, label, message } from "./api";
-import type { QueueRun } from "./types";
+import type { QueueRun, Todo } from "./types";
 
 type Props = Readonly<{
   waiting: number;
@@ -16,7 +16,10 @@ function Progress({
   const finished = run.items.filter(
     (item) =>
       item.status === "completed" ||
-      item.status === "failed" ||
+      (item.status === "failed" &&
+        run.todos.some(
+          (t) => t.claim_id === item.claim_id && t.status === "needs_handler",
+        )) ||
       item.status === "skipped",
   ).length;
   const failed = run.items.filter((item) => item.status === "failed");
@@ -34,14 +37,10 @@ function Progress({
             : `Queue ${label(run.status).toLowerCase()}`}
         </strong>
         <span className="mono">
-          {finished} / {run.items.length} processed
+          {finished} / {run.target} processed
         </span>
       </div>
-      <progress
-        aria-label="Queue progress"
-        max={run.items.length}
-        value={finished}
-      />
+      <progress aria-label="Queue progress" max={run.target} value={finished} />
       <p>
         {complete} completed · {failed.length} failed · {skipped} skipped
       </p>
@@ -58,6 +57,23 @@ function Progress({
       {run.stop_requested && run.status === "running" && (
         <p>Stopping after the current claim finishes.</p>
       )}
+      <ol className="todo-list" aria-label="Run to-do list">
+        {run.todos.map((task) => (
+          <li key={task.claim_id} className={`todo-${task.status}`}>
+            <button
+              className="queue-current"
+              onClick={() => {
+                onSelect(task.claim_id);
+              }}
+            >
+              View {task.claim_id}
+            </button>
+            <span>{task.text}</span>
+            <strong>{todoLabel(task.status)}</strong>
+          </li>
+        ))}
+      </ol>
+      {run.summary && <p className="run-summary">{run.summary}</p>}
       {run.error && <p className="queue-failure">{run.error}</p>}
       {failed.length > 0 && (
         <details>
@@ -81,12 +97,82 @@ function Progress({
   );
 }
 
+function RunOptions({
+  scope,
+  limit,
+  busy,
+  onScope,
+  onLimit,
+}: Readonly<{
+  scope: string;
+  limit: string;
+  busy: boolean;
+  onScope: (value: string) => void;
+  onLimit: (value: string) => void;
+}>) {
+  return (
+    <div className="run-options">
+      <label>
+        Run scope
+        <select
+          value={scope}
+          onChange={(event) => {
+            onScope(event.target.value);
+          }}
+          disabled={busy}
+        >
+          <option value="capped">Limited trial</option>
+          <option value="all">All waiting claims</option>
+        </select>
+      </label>
+      {scope === "capped" && (
+        <label>
+          Claim limit
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={limit}
+            disabled={busy}
+            onChange={(event) => {
+              onLimit(event.target.value);
+            }}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
+function validStart(scope: string, limit: string) {
+  return (
+    scope === "all" || (Number.isInteger(Number(limit)) && Number(limit) > 0)
+  );
+}
+
+function startBody(scope: string, limit: string) {
+  if (scope === "all") return { mode: "all" };
+  return { mode: "capped", max_claims: Number(limit) };
+}
+
+function todoLabel(status: Todo["status"]) {
+  const labels = {
+    pending: "To do",
+    in_progress: "In progress",
+    done: "Done",
+    needs_handler: "Left for a handler",
+  };
+  return labels[status];
+}
+
 export function QueueControl({
   waiting,
   onRefresh,
   onRunningChange,
   onSelect,
 }: Props) {
+  const [scope, setScope] = useState("capped");
+  const [limit, setLimit] = useState("5");
   const [run, setRun] = useState<QueueRun | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -130,13 +216,10 @@ export function QueueControl({
     setBusy(true);
     setError("");
     try {
-      const next = await api<QueueRun>(
-        path,
-        path === "/queue/runs" ? { mode: "all" } : {},
-      );
+      const body = path === "/queue/runs" ? startBody(scope, limit) : {};
+      const next = await api<QueueRun>(path, body);
       setRun(next);
       onRunningChange(next.status === "running");
-      if (path === "/queue/runs") onSelect(next.items[0].claim_id);
     } catch (failure) {
       setError(message(failure));
     } finally {
@@ -145,8 +228,19 @@ export function QueueControl({
     }
   }
   const running = run?.status === "running";
+  const planned =
+    scope === "all" ? waiting : Math.min(waiting, Number(limit) || 0);
   return (
     <section className="panel queue-control" aria-label="Queue processing">
+      {!running && (
+        <RunOptions
+          scope={scope}
+          limit={limit}
+          busy={busy}
+          onScope={setScope}
+          onLimit={setLimit}
+        />
+      )}
       <div className="queue-control-heading">
         <div>
           <h2>Process the queue</h2>
@@ -168,12 +262,14 @@ export function QueueControl({
         ) : (
           <button
             className="primary"
-            disabled={!loaded || busy || waiting === 0}
+            disabled={
+              !loaded || busy || waiting === 0 || !validStart(scope, limit)
+            }
             onClick={() => {
               void act("/queue/runs");
             }}
           >
-            Start queue ({waiting})
+            Start queue ({planned})
           </button>
         )}
       </div>

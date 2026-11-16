@@ -47,7 +47,10 @@ function setup(
       else if (url === "/api/handlers") body = people;
       else if (url === "/api/policy-wording") body = wording;
       else if (url === "/api/agent/instructions")
-        body = { content: "Use the policy wording to decide claims." };
+        body = {
+          claim: "Use the policy wording to decide claims.",
+          queue: "Plan the queue and delegate each claim.",
+        };
       else if (url === "/api/queue/runs/current") body = null;
       else if (url.endsWith("/runs")) {
         if (init?.method === "POST") {
@@ -262,4 +265,23 @@ it("normalizes non-string API errors", async () => {
   await waitFor(() => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
+});
+
+it("shows technical handler needs and both instruction sets", async () => {
+  setup();
+  detail.status = "needs_handler";
+  render(<App />);
+  expect(
+    await screen.findByText(
+      /Left for a handler after two unsuccessful attempts/,
+    ),
+  ).toBeDefined();
+  expect(screen.queryByRole("button", { name: "Start agent" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Agent instructions" }));
+  expect(
+    screen.getByText("Plan the queue and delegate each claim."),
+  ).toBeDefined();
+  expect(
+    screen.getByText("Use the policy wording to decide claims."),
+  ).toBeDefined();
 });

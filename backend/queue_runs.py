@@ -176,7 +176,10 @@ class QueueRuns:
         if detail.status in {"needs_handler", "waiting_sign_off"}:
             return "needs_handler"
         if detail.decision:
-            return "needs_handler" if detail.decision["outcome"] == "refer" else "done"
+            handler = detail.decision["outcome"] == "refer" or (
+                detail.decision["outcome"] == "approve" and not detail.payment
+            )
+            return "needs_handler" if handler else "done"
         return "pending"
 
     def write_todos(self, queue_run_id: str, request: Todos) -> QueueRun:

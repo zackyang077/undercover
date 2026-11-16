@@ -7,11 +7,13 @@ from agent.queue import run_queue
 from agent.tests.test_agent import StubModel, call
 
 
-def scripted_queue(claim_runner, reverse=False):
+def scripted_queue(claim_runner, reverse=False, early=False):
     def runner(queue_run_id, thread_id):
         path = f"/api/queue/runs/{queue_run_id}"
 
         def messages():
+            if early:
+                yield AIMessage(content="Premature finish for correction coverage.")
             yield call("read_queue", {})
             saved = main.request("GET", "/api/queue/runs/current")
             ids = [i["claim_id"] for i in saved["items"]]

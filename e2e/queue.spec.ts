@@ -8,7 +8,14 @@ test("one-click queue processing survives reload, stops safely, and continues af
   const response = await request.get("/api/claims");
   const body: unknown = await response.json();
   const claims = body as ClaimSummary[];
-  const keep = new Set(["CLM-1009", "CLM-1010", "CLM-1011"]);
+  const keep = new Set([
+    "CLM-1009",
+    "CLM-1010",
+    "CLM-1011",
+    "CLM-1012",
+    "CLM-1013",
+    "CLM-1014",
+  ]);
   for (const claim of claims.filter(
     (c) => c.status === "waiting" && !keep.has(c.claim_id),
   )) {
@@ -20,6 +27,7 @@ test("one-click queue processing survives reload, stops safely, and continues af
           "This is an isolated browser fixture. The claim is outside this queue scenario.",
         calculation: "No payout in this test fixture.",
         policy_references: ["11"],
+        manual_references: ["2"],
       },
     });
     expect(saved.ok()).toBe(true);
@@ -27,7 +35,8 @@ test("one-click queue processing survives reload, stops safely, and continues af
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/", { waitUntil: "domcontentloaded" });
   const control = page.getByRole("region", { name: "Queue processing" });
-  await control.getByRole("button", { name: "Start queue (3)" }).click();
+  await page.getByLabel("Claim limit").fill("2");
+  await control.getByRole("button", { name: "Start queue (2)" }).click();
   await expect(control.getByText("Processing queue")).toBeVisible();
   const duplicate = await request.post("/api/queue/runs", {
     data: { mode: "all" },
@@ -42,28 +51,34 @@ test("one-click queue processing survives reload, stops safely, and continues af
     .getByRole("button", { name: "Stop after current claim" })
     .click();
   await expect(control.getByText("Queue stopped")).toBeVisible();
-  await expect(control.getByText("1 / 3 processed")).toBeVisible();
+  await expect(control.getByText("1 / 2 processed")).toBeVisible();
   const blocked = await request.post("/api/claims/CLM-1009/payment", {
     data: { amount: 1250 },
   });
   expect(blocked.status()).toBe(403);
   await page.reload();
   await expect(control.getByText("Queue stopped")).toBeVisible();
-  await control.getByRole("button", { name: "Start queue (2)" }).click();
-  await expect(control.getByText("Queue completed")).toBeVisible();
+  await page.getByLabel("Claim limit").fill("3");
+  await control.getByRole("button", { name: "Start queue (3)" }).click();
+  await expect(control.getByText("Queue completed")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(
-    control.getByText("1 completed · 1 failed · 0 skipped"),
+    control.getByText("2 completed · 1 failed · 0 skipped"),
   ).toBeVisible();
   await control.getByText("Failed claims (1)").click();
-  await expect(control.getByText(/Simulated provider failure/)).toBeVisible();
-  await control.getByRole("button", { name: "CLM-1010", exact: true }).click();
-  await expect(page.locator(".claim-heading")).toContainText("CLM-1010");
+  await expect(control.getByText(/provider failure/)).toBeVisible();
+  await control.getByRole("button", { name: "CLM-1012", exact: true }).click();
+  await expect(page.locator(".claim-heading")).toContainText("CLM-1012");
   const currentResponse = await request.get("/api/queue/runs/current");
   const latestBody: unknown = await currentResponse.json();
   const latest = latestBody as QueueRun;
   expect(latest.items.map((item) => item.status)).toEqual([
-    "failed",
     "completed",
+    "completed",
+    "failed",
+    "pending",
+    "pending",
   ]);
   const claimResponse = await request.get("/api/claims/CLM-1011");
   const detail: unknown = await claimResponse.json();
@@ -73,8 +88,20 @@ test("one-click queue processing survives reload, stops safely, and continues af
   });
   const attempts = await request.get("/api/claims/CLM-1010/runs");
   const savedRuns: unknown = await attempts.json();
-  expect(savedRuns).toHaveLength(1);
-  await control.getByRole("button", { name: "Start queue (1)" }).waitFor();
+  expect(savedRuns).toHaveLength(2);
+  expect(latest.admitted).toHaveLength(3);
+  await expect(
+    control.getByRole("list", { name: "Run to-do list" }),
+  ).toContainText("Left for a handler");
+  await expect(
+    page.getByText(/Left for a handler after two unsuccessful attempts/),
+  ).toBeVisible();
+  const untouched = await request.get("/api/claims/CLM-1013");
+  expect(await untouched.json()).toMatchObject({
+    status: "waiting",
+    decision: null,
+  });
+  await control.getByRole("button", { name: "Start queue (2)" }).waitFor();
   await page.screenshot({
     path: "e2e/test-results/queue-completed.png",
     fullPage: true,

@@ -145,18 +145,22 @@ class Runs:
     def conclude(self, claim_id: str, thread_id: str, error: str) -> Run:
         detail = self.store.detail(claim_id)
         if detail.decision:
+            error = ""
             if (
                 detail.decision["outcome"] == "approve"
                 and detail.status != "waiting_sign_off"
                 and not detail.payment
             ):
-                Finance(self.store).pay(
-                    claim_id,
-                    PaymentInput.model_validate(
-                        {"amount": detail.decision["payout_amount"]}
-                    ),
-                )
-            error = ""
+                try:
+                    Finance(self.store).pay(
+                        claim_id,
+                        PaymentInput.model_validate(
+                            {"amount": detail.decision["payout_amount"]}
+                        ),
+                    )
+                except HTTPException:
+                    if not self.store.detail(claim_id).payment:
+                        error = "Decision recorded; payment needs handler review"
         else:
             error = error or "The helper finished without a recorded decision"
         self.finish(thread_id, "failed" if error else "completed", error)
@@ -172,7 +176,11 @@ class Runs:
 
     async def execute(self, claim_id: str, thread_id: str):
         result = await self.attempt(claim_id, thread_id)
-        if result.status == "failed" and self.store.failures(claim_id) < MAX_ATTEMPTS:
+        if (
+            result.status == "failed"
+            and not self.store.detail(claim_id).decision
+            and self.store.failures(claim_id) < MAX_ATTEMPTS
+        ):
             retry = self.start(claim_id)
             await self.attempt(claim_id, retry.thread_id)
 

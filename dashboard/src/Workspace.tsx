@@ -5,6 +5,27 @@ import { DecisionPanel } from "./DecisionPanel";
 import { Evidence } from "./Evidence";
 import type { ClaimDetail, Handler, Run, Wording } from "./types";
 
+function ClaimStart({
+  visible,
+  status,
+  label: title,
+  disabled,
+  onStart,
+}: Readonly<{
+  visible: boolean;
+  status: string;
+  label: string;
+  disabled: boolean;
+  onStart: () => void;
+}>) {
+  if (!visible || status === "needs_handler") return null;
+  return (
+    <button className="primary" disabled={disabled} onClick={onStart}>
+      {title}
+    </button>
+  );
+}
+
 export function Workspace({
   claimId,
   handlers,
@@ -108,22 +129,26 @@ export function Workspace({
                 : detail.status,
             )}
           </span>
-          {!decision && (
-            <button
-              className="primary"
-              disabled={busy || active || queueRunning}
-              onClick={() => {
-                void act(() => api(`/claims/${claimId}/runs`, {}));
-              }}
-            >
-              {startLabel}
-            </button>
-          )}
+          <ClaimStart
+            visible={!decision}
+            status={detail.status}
+            label={startLabel}
+            disabled={busy || active || queueRunning}
+            onStart={() => {
+              void act(() => api(`/claims/${claimId}/runs`, {}));
+            }}
+          />
         </div>
       </section>
       {(error || fetchError) && (
         <p className="error-banner" role="alert">
           {error || fetchError}
+        </p>
+      )}
+      {detail.status === "needs_handler" && (
+        <p className="error-banner" role="status">
+          Left for a handler after two unsuccessful attempts. Review the
+          activity and decide the next action.
         </p>
       )}
       <DecisionPanel

@@ -121,10 +121,19 @@ export function DecisionPanel(props: Props) {
           <p className="muted">
             Policy sections {decision.policy_references.join(", ")}
           </p>
+          {decision.manual_references && (
+            <p className="muted">
+              Manual sections {decision.manual_references.join(", ")}
+              {decision.manual_version &&
+                ` · Version ${decision.manual_version}`}
+            </p>
+          )}
         </>
       ) : (
         <p className="empty">
-          Start the agent to review the evidence and record a decision.
+          {props.detail.status === "needs_handler"
+            ? "A handler needs to review this claim."
+            : "Start the agent to review the evidence and record a decision."}
         </p>
       )}
     </section>

@@ -173,12 +173,12 @@ Follow `docs/BRAND.md`: current bundled fonts, USD formatting, rounded panels wi
 
 Success criteria:
 
-- [ ] Vitest covers All/limited submission bodies, positive-limit validation, duplicate-start protection, stop, polling, errors, reload restoration, empty state, and the final summary. The UI does not assume the first queue row is the agent's first chosen claim.
-- [ ] A delayed stub makes To do → In progress → Done/Left for a handler visible before the run ends. Retry status and a handler-held technical error link to the correct claim and retain earlier attempt activity.
-- [ ] Claim activity shows the actual manual/wording section title, version, and text read by its helper. References remain distinct from the saved decision explanation/calculation.
-- [ ] The instructions page shows exactly the API-served queue and claim instructions read only. Existing sign-off/payment, named-claim start, selected-claim URL, and approval-result regression tests still pass.
-- [ ] With `npm run dev`, inspect queue planning, active/retrying/finished work, handler needs, section activity, instructions, and sign-off at desktop and narrow mobile widths using Playwright MCP. Verify keyboard use, no horizontal overflow, useful error messages, brand, and no application console errors. If MCP remains unavailable, record that limit and use automated Playwright plus screenshot inspection without claiming an MCP check.
-- [ ] `npm run check:ts` and `npm run check:python` pass at unchanged coverage thresholds. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
+- [x] Vitest covers All/limited submission bodies, positive-limit validation, duplicate-start protection, stop, polling, errors, reload restoration, empty state, and the final summary. The UI does not assume the first queue row is the agent's first chosen claim.
+- [x] A delayed stub makes To do → In progress → Done/Left for a handler visible before the run ends. Retry status and a handler-held technical error link to the correct claim and retain earlier attempt activity.
+- [x] Claim activity shows the actual manual/wording section title, version, and text read by its helper. References remain distinct from the saved decision explanation/calculation.
+- [x] The instructions page shows exactly the API-served queue and claim instructions read only. Existing sign-off/payment, named-claim start, selected-claim URL, and approval-result regression tests still pass.
+- [x] With `npm run dev`, inspect queue planning, active/retrying/finished work, handler needs, section activity, instructions, and sign-off at desktop and narrow mobile widths using Playwright MCP. Verify keyboard use, no horizontal overflow, useful error messages, brand, and no application console errors. If MCP remains unavailable, record that limit and use automated Playwright plus screenshot inspection without claiming an MCP check.
+- [x] `npm run check:ts` and `npm run check:python` pass at unchanged coverage thresholds. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
 
 ## Phase 6 — End-to-end acceptance, five-claim trial, and handover
 

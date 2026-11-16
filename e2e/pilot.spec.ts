@@ -41,7 +41,18 @@ test("scripted approval shows activity and records a separate payment", async ({
   await page.screenshot({ path: "e2e/test-results/pilot-decided.png" });
   await expect(
     page.getByRole("region", { name: "Agent activity" }),
-  ).toContainText("Read policy wording");
+  ).toContainText("Read guidance section");
+  const section = page
+    .locator(".section-read")
+    .filter({ hasText: "Manual section 4" });
+  await section.locator("summary").click();
+  await expect(section.locator("pre")).toContainText(
+    "Work every claim in the same order",
+  );
+  await page.screenshot({
+    path: "e2e/test-results/harness-section.png",
+    fullPage: true,
+  });
   const response = await request.get("/api/claims/CLM-1001");
   const detail: unknown = await response.json();
   expect(detail).toMatchObject({
@@ -108,15 +119,13 @@ for (const scenario of [
   });
 }
 
-test("failed run can be retried without deleting its history", async ({
+test("failed run retries automatically without deleting its history", async ({
   page,
   request,
 }) => {
   await openClaim(page, "CLM-1006");
   await start(page);
-  await expect(page.getByRole("button", { name: "Retry agent" })).toBeVisible();
   await page.screenshot({ path: "e2e/test-results/pilot-failed.png" });
-  await page.getByRole("button", { name: "Retry agent" }).click();
   await expect(
     page
       .getByRole("region", { name: "Agent decision" })

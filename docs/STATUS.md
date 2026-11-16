@@ -1,3 +1,9 @@
+Phase 5 adds All/limited controls (five-claim trial by default), persisted to-dos,
+handler needs, run summaries, expandable section text, and both instruction sets.
+The 16 dashboard tests and 9 Playwright scenarios pass; desktop/mobile queue and
+section screenshots were inspected. Playwright MCP is unavailable, so automated
+Playwright and screenshot inspection provide the browser validation.
+
 Phase 4 replaces the fixed queue loop with a queue create_agent invocation,
 backend-backed planning/delegation, one fresh helper per attempt, automatic retry,
 persistent handler handoff, and missed-claim correction. Stop/restart retain state;

@@ -10,7 +10,7 @@ export function App() {
   const [claims, setClaims] = useState<ClaimSummary[]>([]);
   const [handlers, setHandlers] = useState<Handler[]>([]);
   const [wording, setWording] = useState<Wording | null>(null);
-  const [instructions, setInstructions] = useState("");
+  const [instructions, setInstructions] = useState({ queue: "", claim: "" });
   const [selected, setSelected] = useState(
     () =>
       new URLSearchParams(window.location.search).get("claim") ?? "CLM-1001",
@@ -36,14 +36,14 @@ export function App() {
       api<ClaimSummary[]>("/claims"),
       api<Handler[]>("/handlers"),
       api<Wording>("/policy-wording"),
-      api<{ content: string }>("/agent/instructions"),
+      api<{ queue: string; claim: string }>("/agent/instructions"),
     ])
       .then(([queue, people, policy, prompt]) => {
         if (cancelled) return;
         setClaims(queue);
         setHandlers(people);
         setWording(policy);
-        setInstructions(prompt.content);
+        setInstructions(prompt);
         setReady(true);
       })
       .catch((failure: unknown) => {
@@ -104,11 +104,13 @@ export function App() {
         {!ready && !error && <p role="status">Loading claims desk…</p>}
         {ready && tab === "instructions" && (
           <section className="panel instructions">
+            <h2>Queue instructions</h2>
+            <pre>{instructions.queue}</pre>
             <h2>Claims handling instructions</h2>
             <p className="muted">
               Read only. These are the instructions served to the agent.
             </p>
-            <pre>{instructions}</pre>
+            <pre>{instructions.claim}</pre>
           </section>
         )}
         {ready && tab === "claims" && (
