@@ -1,3 +1,8 @@
+Phase 3 connects fresh claim helpers to section lookup and recorded section text,
+separate claim/queue instructions, bounded model retries, deadlines, and the new
+DeepSeek default. Scripted manual scenarios and lost-payment-response recovery
+pass without model calls.
+
 ## Harness implementation progress
 
 Phase 1 adds typed All/capped queue requests, persisted to-dos, atomic cap admission,

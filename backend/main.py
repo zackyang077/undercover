@@ -74,7 +74,13 @@ def create_app(path: Path, runner: Callable[[str, str], str] = run_agent) -> Fas
     @application.get("/api/agent/instructions", operation_id="get_agent_instructions")
     def get_agent_instructions() -> dict[str, str]:
         """Read the instructions used by the claims agent."""
-        return {"content": Path(__file__).with_name("instructions.md").read_text()}
+        claim = Path(__file__).with_name("instructions.md").read_text(encoding="utf-8")
+        queue = (
+            Path(__file__)
+            .with_name("instructions_queue.md")
+            .read_text(encoding="utf-8")
+        )
+        return {"content": claim, "claim": claim, "queue": queue}
 
     application.include_router(guidance_routes(store))
     application.include_router(financial_routes(store))

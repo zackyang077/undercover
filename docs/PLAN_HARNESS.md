@@ -131,7 +131,7 @@ Success criteria:
 - [x] Guidance tests expose wording sections 1–12 and manual sections 1–14 with their introductions and versions. Reading manual section 10 returns the complete meals rule; section 7 includes its full interpretation notes.
 - [x] Searches for synthetic queries about meals, wild animals, and repeat claims return the relevant sections. Empty/no-match and invalid-document/section cases have deterministic, tested responses. Paths cannot select arbitrary business files.
 - [x] Seed/read allowlist tests permit the manual and full wording while rejecting evaluation, held-out, security, shortened-wording, and unrelated files. Agent tests still forbid direct filesystem/SQLite business-data access.
-- [ ] Successful section reads persist document/version/section/title/text on the correct claim attempt. Failed reads do not create a false read record, and history remains available after reload.
+- [x] Successful section reads persist document/version/section/title/text on the correct claim attempt. Failed reads do not create a false read record, and history remains available after reload.
 - [x] A synthetic customer's prior, open, and declined claims are counted by filing date without duplicate IDs/current-claim double counting. Only that customer's history is returned to the helper.
 - [x] New decision tests validate both kinds of section references and persist manual/wording versions and agent attribution; older pilot decisions display without fabricated metadata. Existing financial boundary/duplicate-payment tests still pass.
 - [x] `npm run check:python` passes. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
@@ -142,13 +142,13 @@ Refactor `agent/main.py` into small modules only where responsibilities warrant 
 
 Success criteria:
 
-- [ ] Stub models exercise approve, decline, refer, and unsigned over-limit approval through real HTTP tool handlers. The saved decision/payment, not the final model sentence, determines success.
-- [ ] Captured initial prompts contain claim instructions and an ID, with no whole manual/wording, answer key, other child's evidence, or other child's transcript. Tools fetch claim data and relevant sections on demand; no whole-document agent tool remains.
-- [ ] Synthetic manual cases cover a third claim in 12 months, a qualifying wild-animal loss, meals without receipts, and a missing-document referral. Verify the actual section reads, saved references, calculation, and decision using scripted model responses; these tests verify wiring, not model judgment accuracy.
-- [ ] Both agent roles select the new default with low reasoning when `MODEL_NAME` is absent or equals that default. Other overrides remain honored without forced reasoning settings. Configuration tests make no live request.
-- [ ] Transient model errors get one retry with bounded backoff; permanent errors terminate clearly. Correctable tool errors reach the stub; invalid financial requests are not blindly retried. Repeating tools or a delayed provider hit tested limits rather than loop forever.
-- [ ] Timeout tests prove no second helper/attempt starts while the first worker can still mutate state. Lost-response tests reconcile a saved decision/payment without duplicating it. No sign-off tool or cross-claim mutation target is available.
-- [ ] `npm run check:python` passes. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
+- [x] Stub models exercise approve, decline, refer, and unsigned over-limit approval through real HTTP tool handlers. The saved decision/payment, not the final model sentence, determines success.
+- [x] Captured initial prompts contain claim instructions and an ID, with no whole manual/wording, answer key, other child's evidence, or other child's transcript. Tools fetch claim data and relevant sections on demand; no whole-document agent tool remains.
+- [x] Synthetic manual cases cover a third claim in 12 months, a qualifying wild-animal loss, meals without receipts, and a missing-document referral. Verify the actual section reads, saved references, calculation, and decision using scripted model responses; these tests verify wiring, not model judgment accuracy.
+- [x] Both agent roles select the new default with low reasoning when `MODEL_NAME` is absent or equals that default. Other overrides remain honored without forced reasoning settings. Configuration tests make no live request.
+- [x] Transient model errors get one retry with bounded backoff; permanent errors terminate clearly. Correctable tool errors reach the stub; invalid financial requests are not blindly retried. Repeating tools or a delayed provider hit tested limits rather than loop forever.
+- [x] Timeout tests prove no second helper/attempt starts while the first worker can still mutate state. Lost-response tests reconcile a saved decision/payment without duplicating it. No sign-off tool or cross-claim mutation target is available.
+- [x] `npm run check:python` passes. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
 
 ## Phase 4 — Agent-led queue, to-dos, recovery, and completion
 

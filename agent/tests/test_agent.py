@@ -1,6 +1,8 @@
+import json
 from contextlib import nullcontext
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -26,7 +28,8 @@ def call(name, args):
 def replies(amount: float = 420, outcome: str = "approve", attempt_payment=True):
     messages = [
         call("read_claim", {}),
-        call("read_policy_wording", {}),
+        call("read_guidance_section", {"document": "wording", "section_id": "3"}),
+        call("read_guidance_section", {"document": "manual", "section_id": "4"}),
         call("record_decision", decision(amount, outcome)),
     ]
     if outcome == "approve" and attempt_payment:
@@ -68,7 +71,8 @@ def test_agent_paths(client, monkeypatch, amount, outcome, pay):
     assert bool(detail["payment"]) == (outcome == "approve" and amount <= 1000)
     combined = " ".join(str(m.content) for m in seen)
     assert "Maya Patel" in combined
-    assert "## 12. Definitions" in combined
+    assert "Trip Delay" in combined
+    assert "Working a claim" in combined
     assert "UnderCover Agent" in combined
     assert "previous_claims" in combined
 
@@ -77,7 +81,9 @@ def test_bound_tools_and_failures(client):
     tools = {tool.name: tool for tool in main.tools_for("CLM-1001")}
     assert set(tools) == {
         "read_claim",
-        "read_policy_wording",
+        "list_sections",
+        "search_guidance",
+        "read_guidance_section",
         "record_decision",
         "pay_claim",
     }
@@ -116,8 +122,86 @@ def test_recursion_limit_and_no_file_access(client, monkeypatch):
 def test_model_configuration(monkeypatch, model_name):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.delenv("MODEL_NAME", raising=False)
-    assert main.model().model_name == "openai/gpt-6-luna"
+    assert main.model().model_name == "deepseek/deepseek-v4.1-flash"
     assert main.model().reasoning_effort == "low"
     monkeypatch.setenv("MODEL_NAME", model_name)
     assert main.model().model_name == model_name
     assert main.model().reasoning_effort is None
+
+
+def test_section_tools_and_activity(client):
+    # Exercise an isolated registered attempt without launching the normal runner.
+    thread = client.app.state.runs.start("CLM-1002").thread_id
+    tools = {t.name: t for t in main.tools_for("CLM-1002", thread)}
+    assert tools["list_sections"].invoke({"document": "manual"})["version"] == "2026.2"
+    assert tools["search_guidance"].invoke(
+        {"document": "manual", "query": "wild animals"}
+    )
+    result = tools["read_guidance_section"].invoke(
+        {"document": "manual", "section_id": "7"}
+    )
+    assert "Wild animals" in result["content"]
+    tools["read_guidance_section"].invoke(
+        {"document": "manual", "section_id": "missing"}
+    )
+    events = client.get("/api/claims/CLM-1002/runs").json()[0]["events"]
+    reads = [e for e in events if e["kind"] == "section_read"]
+    assert len(reads) == 1
+    assert '"version": "2026.2"' in reads[0]["text"]
+    client.app.state.runs.finish(thread, "completed", "")
+
+
+def test_lost_payment_response_reconciles(client, monkeypatch):
+    client.post("/api/claims/CLM-1001/decision", json=decision())
+    original = main.request
+
+    def lost(method, path, body=None):
+        saved = original(method, path, body)
+        if method == "POST" and path.endswith("/payment"):
+            raise httpx.ReadTimeout("Response lost")
+        return saved
+
+    monkeypatch.setattr(main, "request", lost)
+    tools = {t.name: t for t in main.tools_for("CLM-1001")}
+    assert tools["pay_claim"].invoke({"amount": 420})["amount_cents"] == 42000
+    assert client.get("/api/claims/CLM-1001").json()["payment"]["amount"] == 420
+
+
+@pytest.mark.parametrize(
+    ("section", "story", "amount", "outcome"),
+    [
+        ("9", "This is the third claim filed within twelve months.", 0, "refer"),
+        ("7", "A licensed guide confirms a wild monkey damaged a bag.", 100, "approve"),
+        (
+            "10",
+            "One traveler has eleven hours of covered delay without meal receipts.",
+            35,
+            "approve",
+        ),
+        ("5", "The required carrier report has not been supplied.", 0, "refer"),
+    ],
+)
+def test_synthetic_manual_tool_flows(client, section, story, amount, outcome):
+    store = client.app.state.store
+    claim = store.get("claims", "CLM-1001")
+    claim.update(story=story, documents=[], items=[])
+    with store.connection() as connection:
+        connection.execute(
+            "UPDATE records SET body=? WHERE kind='claims' AND id=?",
+            (json.dumps(claim), "CLM-1001"),
+        )
+    payload = {**decision(amount, outcome), "manual_references": [section]}
+    messages = [
+        call("read_claim", {}),
+        call("read_guidance_section", {"document": "wording", "section_id": "3"}),
+        call("read_guidance_section", {"document": "manual", "section_id": section}),
+        call("record_decision", payload),
+    ]
+    if amount:
+        messages.append(call("pay_claim", {"amount": amount}))
+    messages.append(AIMessage(content="Synthetic case recorded."))
+    main.run("CLM-1001", "synthetic", StubModel(messages=iter(messages)))
+    saved = client.get("/api/claims/CLM-1001").json()["decision"]
+    assert saved["manual_references"] == [section]
+    assert saved["outcome"] == outcome
+    assert saved["payout_amount"] == amount

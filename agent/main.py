@@ -1,7 +1,9 @@
 """The UnderCover Agent, using backend HTTP tools only."""
 
+import json
 import os
 import time
+from urllib.parse import urlencode
 
 import httpx
 from dotenv import load_dotenv
@@ -11,13 +13,15 @@ from langchain_core.tools import BaseTool, tool
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
+from agent.middleware import HarnessMiddleware
 from backend.schemas import DecisionInput
 
 load_dotenv()
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "openai/gpt-6-luna"
-MAX_STEPS = 30
+DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
+MAX_STEPS = 60
+CLAIM_SECONDS = 180
 
 
 def backend() -> httpx.Client:
@@ -36,16 +40,36 @@ def request(method: str, path: str, body: object = None) -> dict:
     return response.json()
 
 
+def mutation(method: str, url: str, body: object, claim_path: str) -> dict:
+    try:
+        return request(method, url, body)
+    except httpx.TransportError:
+        if method != "POST":
+            raise
+        detail = request("GET", claim_path)
+        if url.endswith("/payment") and isinstance(body, dict):
+            saved = detail.get("payment")
+            if saved and float(saved["amount"]) == float(body["amount"]):
+                return saved
+        if url.endswith("/decision") and isinstance(body, dict):
+            saved = detail.get("decision")
+            if saved and all(str(saved.get(k)) == str(v) for k, v in body.items()):
+                return saved
+        raise
+
+
 def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
     """Bind all claim mutations to the requested claim."""
     path = f"/api/claims/{claim_id}"
-    deadline = time.monotonic() + 120
+    deadline = time.monotonic() + CLAIM_SECONDS
 
     def perform(name: str, method: str, url: str, body: object = None) -> dict:
         if time.monotonic() > deadline:
-            raise TimeoutError("Agent exceeded its two-minute work limit")
+            raise TimeoutError("Agent exceeded its work deadline")
         emit(thread_id, "tool_started", name, f"Calling {name}")
-        result = request(method, url, body)
+        result = mutation(method, url, body, path)
+        if name == "read_guidance_section" and "error" not in result:
+            emit(thread_id, "section_read", name, json.dumps(result))
         text = str(result["error"]) if "error" in result else "Completed successfully"
         emit(thread_id, "tool_result", name, text)
         return result
@@ -56,9 +80,27 @@ def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
         return perform("read_claim", "GET", path)
 
     @tool
-    def read_policy_wording() -> dict:
-        """Read the full policy wording and its version."""
-        return perform("read_policy_wording", "GET", "/api/policy-wording")
+    def list_sections(document: str) -> dict:
+        """List section titles/version for document 'manual' or 'wording'."""
+        return perform("list_sections", "GET", f"/api/guidance/{document}/sections")
+
+    @tool
+    def search_guidance(document: str, query: str) -> dict:
+        """Find section excerpts in 'manual' or 'wording' using a search query."""
+        return perform(
+            "search_guidance",
+            "GET",
+            f"/api/guidance/{document}/search?{urlencode({'query': query})}",
+        )
+
+    @tool
+    def read_guidance_section(document: str, section_id: str) -> dict:
+        """Read one complete numbered section from 'manual' or 'wording'."""
+        return perform(
+            "read_guidance_section",
+            "GET",
+            f"/api/guidance/{document}/sections/{section_id}",
+        )
 
     @tool(args_schema=DecisionInput.model_json_schema())
     def record_decision(**decision) -> dict:
@@ -70,7 +112,14 @@ def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
         """Record the full approved simulated payment; sign-off is enforced."""
         return perform("pay_claim", "POST", f"{path}/payment", {"amount": amount})
 
-    return [read_claim, read_policy_wording, record_decision, pay_claim]
+    return [
+        read_claim,
+        list_sections,
+        search_guidance,
+        read_guidance_section,
+        record_decision,
+        pay_claim,
+    ]
 
 
 def emit(thread_id: str, kind: str, tool_name: str, text: str):
@@ -95,7 +144,7 @@ def model() -> ChatOpenAI:
         model=name or DEFAULT_MODEL,
         base_url=OPENROUTER_BASE_URL,
         api_key=SecretStr(os.environ["OPENROUTER_API_KEY"]),
-        reasoning_effort=None if name else "low",
+        reasoning_effort="low" if not name or name == DEFAULT_MODEL else None,
         timeout=45,
         max_retries=0,
     )
@@ -119,7 +168,8 @@ def run(claim_id: str, thread_id: str, llm: BaseChatModel | None = None) -> str:
     agent = create_agent(
         llm or model(),
         tools=tools_for(claim_id, thread_id),
-        system_prompt=instructions["content"],
+        system_prompt=instructions["claim"],
+        middleware=[HarnessMiddleware(CLAIM_SECONDS)],
     )
     result = agent.invoke(
         {"messages": [{"role": "user", "content": f"Decide claim {claim_id}."}]},

@@ -36,7 +36,7 @@ def test_background_activity(tmp_path, monkeypatch, amount):
         wait_for_run(client, "completed")
         run = client.get("/api/claims/CLM-1001/runs").json()[0]
         assert run["events"][-1]["kind"] == "completed"
-        assert "read_policy_wording" in {e["tool_name"] for e in run["events"]}
+        assert "read_guidance_section" in {e["tool_name"] for e in run["events"]}
         assert client.post("/api/claims/CLM-1001/runs").status_code == 409
         assert (
             client.post(
@@ -132,7 +132,7 @@ def test_agent_deadline_and_inactive_logging(tmp_path, monkeypatch):
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         monkeypatch.setattr(main.time, "monotonic", lambda: 0)
         tools = main.tools_for("CLM-1001")
-        monkeypatch.setattr(main.time, "monotonic", lambda: 121)
+        monkeypatch.setattr(main.time, "monotonic", lambda: 181)
         with pytest.raises(TimeoutError):
             tools[0].invoke({})
         monkeypatch.undo()
