@@ -2,7 +2,6 @@
 
 import os
 import time
-from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
@@ -11,6 +10,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool, tool
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
+
+from backend.schemas import DecisionInput
 
 load_dotenv()
 
@@ -59,27 +60,10 @@ def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
         """Read the full policy wording and its version."""
         return perform("read_policy_wording", "GET", "/api/policy-wording")
 
-    @tool
-    def record_decision(
-        outcome: Literal["approve", "decline", "refer"],
-        payout_amount: float,
-        explanation: str,
-        calculation: str,
-        policy_references: list[str],
-    ) -> dict:
-        """Save the final decision, calculation and policy section numbers."""
-        return perform(
-            "record_decision",
-            "POST",
-            f"{path}/decision",
-            {
-                "outcome": outcome,
-                "payout_amount": payout_amount,
-                "explanation": explanation,
-                "calculation": calculation,
-                "policy_references": policy_references,
-            },
-        )
+    @tool(args_schema=DecisionInput.model_json_schema())
+    def record_decision(**decision) -> dict:
+        """Save the final decision, calculation and guidance section numbers."""
+        return perform("record_decision", "POST", f"{path}/decision", decision)
 
     @tool
     def pay_claim(amount: float) -> dict:

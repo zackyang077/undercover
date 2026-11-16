@@ -16,6 +16,7 @@ class DecisionInput(BaseModel):
     explanation: Annotated[str, Field(min_length=1)]
     calculation: Annotated[str, Field(min_length=1)]
     policy_references: Annotated[list[str], Field(min_length=1)]
+    manual_references: Annotated[list[str], Field(min_length=1)]
 
     @model_validator(mode="after")
     def consistent_payout(self) -> Self:
@@ -27,6 +28,10 @@ class DecisionInput(BaseModel):
             ref not in {str(i) for i in range(1, 13)} for ref in self.policy_references
         ):
             raise ValueError("Policy references must be section numbers 1 through 12")
+        if any(
+            ref not in {str(i) for i in range(1, 15)} for ref in self.manual_references
+        ):
+            raise ValueError("Manual references must be section numbers 1 through 14")
         return self
 
 

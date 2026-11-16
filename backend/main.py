@@ -10,6 +10,7 @@ from pydantic import JsonValue
 
 from agent.main import run as run_agent
 from backend.finance import Finance
+from backend.guidance import routes as guidance_routes
 from backend.queue_runs import QueueRuns
 from backend.queue_runs import routes as queue_routes
 from backend.runs import Runs, routes
@@ -75,6 +76,7 @@ def create_app(path: Path, runner: Callable[[str, str], str] = run_agent) -> Fas
         """Read the instructions used by the claims agent."""
         return {"content": Path(__file__).with_name("instructions.md").read_text()}
 
+    application.include_router(guidance_routes(store))
     application.include_router(financial_routes(store))
     application.include_router(routes(runs))
     application.include_router(queue_routes(queue))

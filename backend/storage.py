@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from fastapi import HTTPException
 
+from backend.guidance import initialize as initialize_guidance
 from backend.schemas import Claim, ClaimDetail, ClaimSummary, Customer, Plan, Policy
 
 DATA = Path(__file__).resolve().parents[1] / "data"
@@ -53,7 +54,8 @@ class Store:
                 "thread_id TEXT NOT NULL, kind TEXT NOT NULL, tool_name TEXT NOT NULL, "
                 "text TEXT NOT NULL, created_at TEXT NOT NULL);"
             )
-            if connection.execute("SELECT 1 FROM records LIMIT 1").fetchone():
+            initialize_guidance(connection, DATA)
+            if self.find(connection, "settings", "company"):
                 return
             for kind, key in SEEDS.items():
                 for record in json.loads((DATA / f"{kind}.json").read_text()):
@@ -136,9 +138,7 @@ class Store:
         return ClaimDetail(
             claim=Claim.model_validate(claim),
             policy=Policy.model_validate(policy),
-            customer=Customer.model_validate(
-                self.get("customers", claim["customer_id"])
-            ),
+            customer=self.customer_history(claim),
             plan=Plan.model_validate(self.get("plans", policy["plan"])),
             add_ons=[a for a in plans["add_ons"] if a["add_on"] in policy["add_ons"]],
             deductible_applies_to=plans["deductible_applies_to"],
@@ -148,6 +148,31 @@ class Store:
             sign_off=signed,
             payment=payment,
         )
+
+    def customer_history(self, claim: dict) -> Customer:
+        customer = self.get("customers", claim["customer_id"])
+        history = {c["claim_id"]: c for c in customer["previous_claims"]}
+        for other in self.all("claims"):
+            if (
+                other["customer_id"] != claim["customer_id"]
+                or other["submitted_on"] > claim["submitted_on"]
+            ):
+                continue
+            with self.connection() as connection:
+                decision = self.find(connection, "decisions", other["claim_id"])
+                payment = self.find(connection, "payments", other["claim_id"])
+            history[other["claim_id"]] = {
+                "claim_id": other["claim_id"],
+                "filed_on": other["submitted_on"],
+                "summary": other["summary"],
+                "outcome": decision["outcome"] if decision else "open",
+                "amount_paid": payment["amount"] if payment else 0,
+            }
+        history.pop(claim["claim_id"], None)
+        customer["previous_claims"] = sorted(
+            history.values(), key=lambda c: c["filed_on"]
+        )
+        return Customer.model_validate(customer)
 
     def failures(self, claim_id: str) -> int:
         with self.connection() as connection:

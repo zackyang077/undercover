@@ -24,6 +24,7 @@ def decision(amount: float = 420, outcome: str = "approve"):
         ),
         "calculation": f"Eligible expenses = ${amount}",
         "policy_references": ["3", "10"],
+        "manual_references": ["4", "6"],
     }
 
 

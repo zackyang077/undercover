@@ -22,6 +22,7 @@ def test_records_and_restart(tmp_path, monkeypatch):
             "plans.json",
             "company.json",
             "policy_wording.md",
+            "claims_manual.md",
         }
         return read(path, *args, **kwargs)
 

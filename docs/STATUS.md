@@ -2,8 +2,10 @@
 
 Phase 1 adds typed All/capped queue requests, persisted to-dos, atomic cap admission,
 claim locks, and a two-failure handler state. Existing databases upgrade without
-reseeding; old pilot failures do not consume the new attempt budget. Agent-led
-execution and automatic retry are the next phases.
+reseeding; old pilot failures do not consume the new attempt budget. Phase 2 adds versioned manual/wording section lookup, validated manual references,
+decision provenance, and deduplicated platform claim history. Python checks pass
+with 68 tests and 98.62% coverage. Section-read logging is connected in phase 3;
+agent-led execution and automatic retry follow.
 
 # Status
 

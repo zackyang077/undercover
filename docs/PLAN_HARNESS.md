@@ -128,13 +128,13 @@ Add a small backend guidance module for the two allowlisted documents, the looku
 
 Success criteria:
 
-- [ ] Guidance tests expose wording sections 1–12 and manual sections 1–14 with their introductions and versions. Reading manual section 10 returns the complete meals rule; section 7 includes its full interpretation notes.
-- [ ] Searches for synthetic queries about meals, wild animals, and repeat claims return the relevant sections. Empty/no-match and invalid-document/section cases have deterministic, tested responses. Paths cannot select arbitrary business files.
-- [ ] Seed/read allowlist tests permit the manual and full wording while rejecting evaluation, held-out, security, shortened-wording, and unrelated files. Agent tests still forbid direct filesystem/SQLite business-data access.
+- [x] Guidance tests expose wording sections 1–12 and manual sections 1–14 with their introductions and versions. Reading manual section 10 returns the complete meals rule; section 7 includes its full interpretation notes.
+- [x] Searches for synthetic queries about meals, wild animals, and repeat claims return the relevant sections. Empty/no-match and invalid-document/section cases have deterministic, tested responses. Paths cannot select arbitrary business files.
+- [x] Seed/read allowlist tests permit the manual and full wording while rejecting evaluation, held-out, security, shortened-wording, and unrelated files. Agent tests still forbid direct filesystem/SQLite business-data access.
 - [ ] Successful section reads persist document/version/section/title/text on the correct claim attempt. Failed reads do not create a false read record, and history remains available after reload.
-- [ ] A synthetic customer's prior, open, and declined claims are counted by filing date without duplicate IDs/current-claim double counting. Only that customer's history is returned to the helper.
-- [ ] New decision tests validate both kinds of section references and persist manual/wording versions and agent attribution; older pilot decisions display without fabricated metadata. Existing financial boundary/duplicate-payment tests still pass.
-- [ ] `npm run check:python` passes. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
+- [x] A synthetic customer's prior, open, and declined claims are counted by filing date without duplicate IDs/current-claim double counting. Only that customer's history is returned to the helper.
+- [x] New decision tests validate both kinds of section references and persist manual/wording versions and agent attribution; older pilot decisions display without fabricated metadata. Existing financial boundary/duplicate-payment tests still pass.
+- [x] `npm run check:python` passes. Update this plan and `docs/STATUS.md`, then commit through the pre-commit hook.
 
 ## Phase 3 — Fresh claim helper, instructions, and bounded middleware
 

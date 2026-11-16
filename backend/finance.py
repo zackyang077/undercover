@@ -25,6 +25,9 @@ class Finance:
             payout_amount=float(decision.payout_amount),
             payout_cents=int(decision.payout_amount * 100),
             created_at=now(),
+            wording_version=self.store.get("guidance", "wording")["version"],
+            manual_version=self.store.get("guidance", "manual")["version"],
+            decided_by="UnderCover Agent",
         )
         with self.store.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
