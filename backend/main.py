@@ -12,6 +12,7 @@ from agent.main import run as run_agent
 from agent.queue import run_queue
 from backend.finance import Finance
 from backend.guidance import routes as guidance_routes
+from backend.payout import routes as payout_routes
 from backend.queue_runs import QueueRuns
 from backend.queue_runs import routes as queue_routes
 from backend.runs import Runs, routes
@@ -88,6 +89,7 @@ def create_app(
         return {"content": claim, "claim": claim, "queue": queue}
 
     application.include_router(guidance_routes(store))
+    application.include_router(payout_routes(store))
     application.include_router(financial_routes(store))
     application.include_router(routes(runs))
     application.include_router(queue_routes(queue))

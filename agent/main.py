@@ -3,10 +3,10 @@
 import json
 import os
 import time
+from contextvars import Context
 from urllib.parse import urlencode
 
 import httpx
-from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool, tool
@@ -14,9 +14,9 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from agent.middleware import HarnessMiddleware
+from agent.tracing import claim_config
+from backend.payout import PayoutInput
 from backend.schemas import DecisionInput
-
-load_dotenv()
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
@@ -63,9 +63,7 @@ def mutation(method: str, url: str, body: object, claim_path: str) -> dict:
         raise
 
 
-def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
-    """Bind all claim mutations to the requested claim."""
-    path = f"/api/claims/{claim_id}"
+def claim_request(path: str, thread_id: str):
     deadline = time.monotonic() + CLAIM_SECONDS
 
     def perform(name: str, method: str, url: str, body: object = None) -> dict:
@@ -78,6 +76,14 @@ def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
         text = str(result["error"]) if "error" in result else "Completed successfully"
         emit(thread_id, "tool_result", name, text)
         return result
+
+    return perform
+
+
+def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
+    """Bind all claim mutations to the requested claim."""
+    path = f"/api/claims/{claim_id}"
+    perform = claim_request(path, thread_id)
 
     @tool
     def read_claim() -> dict:
@@ -112,6 +118,11 @@ def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
         """Save the final decision, calculation and guidance section numbers."""
         return perform("record_decision", "POST", f"{path}/decision", decision)
 
+    @tool(args_schema=PayoutInput.model_json_schema())
+    def work_out_payout(**inputs) -> dict:
+        """Calculate a covered benefit with its eligible expenses and refunds."""
+        return perform("work_out_payout", "POST", f"{path}/payout-calculation", inputs)
+
     @tool
     def pay_claim(amount: float) -> dict:
         """Record the full approved simulated payment; sign-off is enforced."""
@@ -122,6 +133,7 @@ def tools_for(claim_id: str, thread_id: str = "") -> list[BaseTool]:
         list_sections,
         search_guidance,
         read_guidance_section,
+        work_out_payout,
         record_decision,
         pay_claim,
     ]
@@ -176,9 +188,13 @@ def run(claim_id: str, thread_id: str, llm: BaseChatModel | None = None) -> str:
         system_prompt=instructions["claim"],
         middleware=[HarnessMiddleware(CLAIM_SECONDS)],
     )
-    result = agent.invoke(
+    config = claim_config(claim_id, thread_id)
+    config["recursion_limit"] = MAX_STEPS
+    # A delegated claim starts its own trace outside the queue tool's context.
+    result = Context().run(
+        agent.invoke,
         {"messages": [{"role": "user", "content": f"Decide claim {claim_id}."}]},
-        config={"configurable": {"thread_id": thread_id}, "recursion_limit": MAX_STEPS},
+        config=config,
     )
     verify_result(claim_id)
     return result["messages"][-1].text

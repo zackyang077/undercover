@@ -5,11 +5,12 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
-from agent import main
+from agent import main, tracing
 from backend.main import create_app
 from backend.tests.test_finance import decision
 
@@ -84,10 +85,12 @@ def test_bound_tools_and_failures(client):
         "list_sections",
         "search_guidance",
         "read_guidance_section",
+        "work_out_payout",
         "record_decision",
         "pay_claim",
     }
     assert "claim_id" not in tools["record_decision"].args
+    assert "claim_id" not in tools["work_out_payout"].args
     assert tools["record_decision"].invoke(decision(0))["status_code"] == 422
     assert tools["pay_claim"].invoke({"amount": 1})["status_code"] == 409
     stub = StubModel(messages=iter([AIMessage(content="I am done.")]))
@@ -96,6 +99,56 @@ def test_bound_tools_and_failures(client):
     unpaid = StubModel(messages=iter(replies(attempt_payment=False)))
     with pytest.raises(RuntimeError, match="still unpaid"):
         main.run("CLM-1001", "thread-2", unpaid)
+
+
+def test_model_uses_payout_result(client, monkeypatch):
+    captured = []
+    generate = StubModel._generate
+
+    def watch(model, messages, **kwargs):
+        captured.extend(
+            json.loads(msg.text)
+            for msg in messages
+            if isinstance(msg, ToolMessage) and msg.name == "work_out_payout"
+        )
+        return generate(model, messages, **kwargs)
+
+    monkeypatch.setattr(StubModel, "_generate", watch)
+    line = dict(
+        description="Hotel", amount=500, quantity=1, kind="expense", nights=0, hours=0
+    )
+    payload = dict(benefit="trip_delay", lines=[line], paid_by_others=80)
+    saved = {**decision(), "calculation": "Covered $500 less $80 refunded = $420."}
+    messages = [
+        call("work_out_payout", payload),
+        call("record_decision", saved),
+        call("pay_claim", {"amount": 420}),
+        AIMessage(content="Paid."),
+    ]
+    main.run("CLM-1001", "calculation", StubModel(messages=iter(messages)))
+    assert captured[0]["payout"] == 420
+    record = client.get("/api/claims/CLM-1001").json()["decision"]
+    assert all(record[key] == expected for key, expected in saved.items())
+
+
+def test_claim_calls_trace_into_attempt_sessions(client, monkeypatch):
+    sessions = []
+
+    class Recorder(BaseCallbackHandler):
+        def on_chain_start(self, serialized, inputs, **kwargs):
+            if kwargs.get("parent_run_id") is None:
+                sessions.append(kwargs["metadata"]["langfuse_session_id"])
+
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "test-public")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "test-secret")
+    monkeypatch.setattr(tracing, "CallbackHandler", Recorder)
+    for thread in ["first", "first", "next"]:
+        stub = StubModel(messages=iter([AIMessage(content="Done.")]))
+        with pytest.raises(RuntimeError, match="without a recorded decision"):
+            main.run("CLM-1001", thread, stub)
+    assert sessions == ["CLM-1001/first", "CLM-1001/first", "CLM-1001/next"]
+    monkeypatch.delenv("LANGFUSE_SECRET_KEY")
+    assert "callbacks" not in tracing.claim_config("CLM-1001", "next")
 
 
 def test_recursion_limit_and_no_file_access(client, monkeypatch):

@@ -21,8 +21,9 @@ that likely amount in the explanation/calculation; a referral's payout is zero.
 Do not refer just because a story is unusual or an amount exceeds payment authority.
 
 Record approve, decline or refer using record_decision. Read all medical records
-and evidence, check conditions and exceptions, apply item limits, subtract refunds,
-apply the deductible once where applicable, then the benefit cap. Distinguish a
+and evidence and check conditions and exceptions. For an approval, call
+work_out_payout with the benefit, covered expense lines and third-party refunds
+(zero when none). Use its payout and explain its calculation in the decision. Distinguish a
 missing required document (refer, naming what is needed) from a required step the
 customer confirms never occurred (decline when the benefit condition is unmet).
 For discrepancies, follow the manual without accusing the customer of dishonesty.

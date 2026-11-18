@@ -172,3 +172,7 @@ notebook regressions), 16 frontend tests, and 9 Playwright tests, with lint,
 formatting and type checks. Playwright required local port access outside the
 sandbox. The two updated definition cells were rerun in the current notebook
 kernel; paid experiments were not rerun.
+
+## Durable claims · Phase 1
+
+The claim helper now calls the backend payout calculator. A Premium electronics fixture pays $1,050 after third-party compensation and the deductible. The targeted tests cover company limits, financial boundaries, scripted tool use and Langfuse session grouping. Hosted traces are checked during the live trial.
