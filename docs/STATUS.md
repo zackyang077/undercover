@@ -149,3 +149,26 @@ generation reaches a length limit. Rerun the cell to generate a new response;
 the earlier short response cannot be expanded by changing its display.
 Regression coverage uses long synthetic content with both `stop` and `length`
 responses, without calling Ark or loading local credentials.
+
+## Week 2 Day 2 experiment results
+
+`labs/week2day2.ipynb` accepts model messages without OpenRouter's
+`token_usage.cost`, including OpenAI Responses messages. Missing cost stays
+unknown (`None`/`NaN`) through run totals and averages; known zero costs remain
+zero. Unknown cost and undefined metrics are omitted from Langfuse scores.
+Decisions and retrieved facts are returned even when billing metadata is absent.
+
+Empty experiments retain a table schema, skip scoring and charts, and report
+success/failure counts. Comparisons require successful results from both
+experiments and describe metrics as covering successful items only.
+
+Rerun the Scoring evaluator definitions and The task definition cell before
+rerunning experiments in an existing kernel. Offline regression tests load the
+actual notebook functions with synthetic messages and a fake agent; they do
+not call models, upload experiments, or open evaluation data.
+
+On November 18, 2026, validation passed: 96 Python tests (including 16 new
+notebook regressions), 16 frontend tests, and 9 Playwright tests, with lint,
+formatting and type checks. Playwright required local port access outside the
+sandbox. The two updated definition cells were rerun in the current notebook
+kernel; paid experiments were not rerun.
