@@ -26,17 +26,22 @@ Our goal is to handle claims straight through, as accurately as our handlers do.
 
 ## Working the queue
 
-One agent run chooses the order of waiting claims, keeps a visible to-do list,
-and delegates each claim to a fresh helper. A limited trial caps the number of
-distinct claims; a retry uses the same slot. The agent can also work one named claim.
-Handlers can stop after the current claim and read the final run summary.
+One queue run chooses the order of waiting claims, keeps a visible to-do list,
+and delegates each claim to a helper. A limited trial caps distinct claims. A
+handler can start one named claim or stop a batch after its current claim.
+Starting the next run continues the unfinished batch within its original cap.
 
-Helpers look up relevant manual and wording sections through the backend. The
-claim page shows the sections read, and new decisions record references and
-versions. A failed undecided claim returns to Waiting and is retried once. Two
-failed attempts leave it for a handler without inventing a decision. Saved
-decisions and payments are reconciled and never duplicated. Before finishing,
-the agent checks for missed work within its cap.
+Each helper reads evidence and versioned guidance through the backend, selects
+covered expenses and uses UnderCover's payout calculator. The claim page shows
+the sections read, the decision, its references and its calculation. An approved
+payout that needs a handler waits on its thread while other claims proceed.
+Signing off records the handler and time. The claim shows In progress until the
+agent records its simulated payment. The signed approval survives an outage.
+
+Interrupted work resumes from its last saved step on the same attempt. A failed
+undecided claim gets one fresh retry within its original slot. Two failures
+leave it for a handler. Replaying an existing decision or payment returns the
+claim. The queue checks for missed work within its cap and shows a final summary.
 
 ## Rules
 

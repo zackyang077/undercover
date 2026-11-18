@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from backend.main import create_app
 
@@ -169,3 +170,54 @@ def test_payment_replay_after_response_loss_and_restart(tmp_path):
         assert replayed.json() == first
         assert replayed.json()["payment"]["sign_off"] == signed
         assert len(reopened.state.store.all("payments")) == 1
+
+
+def test_sign_off_checks_financial_facts_in_one_read(client):
+    client.post(f"{CLAIM}/decision", json=decision(1250)).raise_for_status()
+    statements = []
+
+    def record(conn, cursor, statement, *_):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    engine = client.app.state.store.engine
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        client.post(
+            f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}
+        ).raise_for_status()
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert len(statements) == 1
+
+
+def test_settlement_tracks_committed_facts_without_fetching_full_detail(client):
+    endpoint = f"{CLAIM}/settlement"
+    assert client.get("/api/claims/missing/settlement").status_code == 404
+    client.post(f"{CLAIM}/decision", json=decision(1250)).raise_for_status()
+    assert client.get(endpoint).json() == {
+        "status": "waiting_sign_off",
+        "sign_off": None,
+        "payment": None,
+    }
+    signed = client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}).json()
+    assert client.get(endpoint).json() == {
+        "status": "in_progress",
+        "sign_off": signed,
+        "payment": None,
+    }
+    paid = client.post(f"{CLAIM}/payment", json={"amount": 1250}).json()
+    statements = []
+
+    def observe(conn, cursor, statement, *_):
+        statements.append(statement)
+
+    engine = client.app.state.store.engine
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        summary = client.get(endpoint).json()
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert summary == {key: paid[key] for key in ("status", "sign_off", "payment")}
+    assert len(statements) == 1
+    assert "customer" not in statements[0].lower()

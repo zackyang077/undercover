@@ -162,3 +162,28 @@ def test_unfinished_payment_preserves_thread_and_budget(tmp_path):
         detail = app.state.store.detail("CLM-1001")
         assert detail.decision is not None
         assert detail.payment is None
+
+
+def test_signoff_activates_original_paused_attempt_before_notification(
+    tmp_path, monkeypatch
+):
+    app = create_app(tmp_path / "waiting.sqlite3")
+    with TestClient(app) as client:
+        runs = app.state.runs
+        cid = "CLM-1001"
+        thread = runs.start(cid).thread_id
+        Finance(app.state.store).decide(
+            cid, DecisionInput.model_validate(decision(1250))
+        )
+        assert runs.conclude(cid, thread, "").status == "paused"
+        observed = []
+        monkeypatch.setattr(
+            "backend.dispatch.notify", lambda _: observed.extend(runs.list(cid))
+        )
+        client.post(
+            f"/api/claims/{cid}/sign-off", json={"handler_id": "HND-01"}
+        ).raise_for_status()
+        assert [(run.thread_id, run.status) for run in observed] == [
+            (thread, "running")
+        ]
+        assert app.state.store.detail(cid).payment is None

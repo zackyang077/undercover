@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend import dispatch
 from backend.finance import now
 from backend.runs import Runs
+from backend.schemas import ClaimSummary
 
 
 class AllClaims(BaseModel):
@@ -71,6 +72,17 @@ class QueueRun(BaseModel):
 
 
 ALL_CLAIMS = AllClaims(mode="all")
+
+
+def todo_status(claim: ClaimSummary) -> TodoStatus:
+    if (
+        claim.status in {"needs_handler", "waiting_sign_off"}
+        or claim.outcome == "refer"
+    ):
+        return "needs_handler"
+    if claim.status == "in_progress" or claim.payment_status == "unpaid":
+        return "in_progress"
+    return "done" if claim.outcome else "pending"
 
 
 class QueueRuns:
@@ -175,16 +187,13 @@ class QueueRuns:
         return {"claim_id": claim_id, "thread_id": thread_id}
 
     def task_status(self, claim_id: str) -> TodoStatus:
-        detail = self.store.detail(claim_id)
-        if detail.status == "in_progress":
-            return "in_progress"
-        if detail.status in {"needs_handler", "waiting_sign_off"}:
-            return "needs_handler"
-        if detail.decision:
-            if detail.decision["outcome"] == "approve" and not detail.payment:
-                return "in_progress"
-            return "needs_handler" if detail.decision["outcome"] == "refer" else "done"
-        return "pending"
+        status = self.todo_statuses().get(claim_id)
+        if status is None:
+            raise HTTPException(404, "Record not found")
+        return status
+
+    def todo_statuses(self) -> dict[str, TodoStatus]:
+        return {c.claim_id: todo_status(c) for c in self.store.queue()}
 
     def write_todos(self, queue_run_id: str, request: Todos) -> QueueRun:
         with self.editing(queue_run_id) as batch:
@@ -197,8 +206,9 @@ class QueueRuns:
                 raise HTTPException(
                     409, "Tasks must preserve admitted work and the cap"
                 )
+            statuses = self.todo_statuses()
             for task in request.items:
-                if task.status != self.task_status(task.claim_id):
+                if task.status != statuses[task.claim_id]:
                     raise HTTPException(
                         409, "Task status must match the recorded claim"
                     )
@@ -206,16 +216,14 @@ class QueueRuns:
         return batch
 
     def finish_attempt(self, queue_run_id: str, thread_id: str, error: str) -> dict:
-        batch = self.current()
-        if not batch or batch.queue_run_id != queue_run_id:
-            raise HTTPException(404, "Queue run not found")
-        item = next((i for i in batch.items if i.thread_id == thread_id), None)
-        if not item:
-            raise HTTPException(404, "Attempt does not belong to this queue run")
-        result = self.runs.conclude(item.claim_id, thread_id, error)
         with self.editing(queue_run_id) as batch:
-            item = next(i for i in batch.items if i.thread_id == thread_id)
-            if result.status == "interrupted":
+            item = next((i for i in batch.items if i.thread_id == thread_id), None)
+            if not item:
+                raise HTTPException(404, "Attempt does not belong to this queue run")
+            result = self.runs.conclude(item.claim_id, thread_id, error)
+            claim = next(c for c in self.store.queue() if c.claim_id == item.claim_id)
+            task_status = todo_status(claim)
+            if result.status in {"interrupted", "running"}:
                 item.status = "pending"
             else:
                 item.status = (
@@ -226,20 +234,15 @@ class QueueRuns:
             item.error = result.error
             for task in batch.todos:
                 if task.claim_id == item.claim_id:
-                    task.status = self.task_status(item.claim_id)
-        detail = self.store.detail(item.claim_id)
-        decision = detail.decision
+                    task.status = task_status
         line = (
-            (
-                f"{decision['outcome']} ${float(str(decision['payout_amount'])):.2f}; "
-                f"{detail.status}"
-            )
-            if decision
+            f"{claim.outcome} ${claim.payout_amount:.2f}; {claim.status}"
+            if claim.payout_amount is not None
             else result.error
         )
         return {
             "claim_id": item.claim_id,
-            "status": self.task_status(item.claim_id),
+            "status": task_status,
             "summary": f"{item.claim_id}: {line}",
         }
 
@@ -247,7 +250,11 @@ class QueueRuns:
         batch = self.current()
         if not batch or batch.queue_run_id != queue_run_id:
             raise HTTPException(404, "Queue run not found")
-        waiting = {c.claim_id for c in self.store.queue() if c.status == "waiting"}
+        return self.check_snapshot(batch, {c.claim_id: c for c in self.store.queue()})
+
+    @staticmethod
+    def check_snapshot(batch: QueueRun, claims: dict[str, ClaimSummary]) -> dict:
+        waiting = {cid for cid, claim in claims.items() if claim.status == "waiting"}
         remaining = [
             i.claim_id
             for i in batch.items
@@ -255,13 +262,23 @@ class QueueRuns:
         ]
         retries = [c for c in batch.admitted if c in waiting]
         active = [i.claim_id for i in batch.items if i.status == "running"]
+        resumable = [
+            i.claim_id
+            for i in batch.items
+            if i.status == "pending"
+            and i.thread_id
+            and i.claim_id in batch.admitted
+            and claims[i.claim_id].payment_status == "unpaid"
+            and claims[i.claim_id].status != "waiting_sign_off"
+        ]
         slots = max(0, batch.target - len(batch.admitted))
         return {
             "remaining": remaining if slots else [],
             "retries": retries,
             "unused_slots": slots,
             "active": active,
-            "complete": not active and not retries and not (slots and remaining),
+            "resumable": resumable,
+            "complete": not (active or resumable or retries or (slots and remaining)),
             "stop_requested": batch.stop_requested,
         }
 
@@ -272,6 +289,13 @@ class QueueRuns:
             run.stop_requested = True
         return run
 
+    def continue_interrupted(self, queue_run_id: str) -> QueueRun:
+        with self.editing(queue_run_id) as run:
+            if run.status == "interrupted":
+                run.status = "running"
+                run.finished_at = run.error = run.summary = ""
+        return run
+
     def finish(
         self,
         queue_run_id: str,
@@ -280,20 +304,26 @@ class QueueRuns:
         summary: str = "",
     ):
         with self.editing(queue_run_id) as run:
-            if status == "completed" and not self.check(queue_run_id)["complete"]:
+            claims = {c.claim_id: c for c in self.store.queue()}
+            check = self.check_snapshot(run, claims)
+            if check["resumable"] and status != "stopped":
+                run.status = "interrupted"
+                error = error or "Approved payment pending on its saved thread"
+                summary = error
+            elif status == "completed" and not check["complete"]:
                 raise RuntimeError(
                     "Queue finished with missed claims or pending retries"
                 )
+            else:
+                run.status = status
             for item in run.items:
                 if (
                     item.claim_id not in run.admitted
                     and item.status == "pending"
-                    and self.store.detail(item.claim_id).status
-                    not in {"waiting", "in_progress"}
+                    and claims[item.claim_id].status not in {"waiting", "in_progress"}
                 ):
                     item.status = "skipped"
                     item.error = "Claim resolved outside this run"
-            run.status = status
             run.finished_at = now()
             run.error = error
             run.summary = summary
@@ -311,8 +341,9 @@ class QueueRuns:
                     if item.status == "running":
                         item.status = "pending"
                         item.error = ""
+                statuses = self.todo_statuses()
                 for task in run.todos:
-                    task.status = self.task_status(task.claim_id)
+                    task.status = statuses[task.claim_id]
 
     async def execute(self, batch: QueueRun):
         try:

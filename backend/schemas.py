@@ -129,7 +129,13 @@ class Handler(Record):
     can_approve_over_limit: bool
 
 
-class ClaimDetail(BaseModel):
+class Settlement(BaseModel):
+    status: str
+    sign_off: dict[str, JsonValue] | None = None
+    payment: dict[str, JsonValue] | None = None
+
+
+class ClaimDetail(Settlement):
     claim: Claim
     policy: Policy
     customer: Customer
@@ -137,10 +143,7 @@ class ClaimDetail(BaseModel):
     add_ons: list[dict[str, JsonValue]]
     deductible_applies_to: list[str]
     approval_limit: float
-    status: str
     decision: dict[str, JsonValue] | None = None
-    sign_off: dict[str, JsonValue] | None = None
-    payment: dict[str, JsonValue] | None = None
 
 
 class ClaimSummary(BaseModel):

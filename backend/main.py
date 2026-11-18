@@ -21,6 +21,7 @@ from backend.schemas import (
     DecisionInput,
     Handler,
     PaymentInput,
+    Settlement,
     SignOffInput,
     Wording,
 )
@@ -102,6 +103,11 @@ def create_app(
 def financial_routes(store: Store) -> APIRouter:
     router = APIRouter()
     finance = Finance(store)
+
+    @router.get("/api/claims/{claim_id}/settlement", operation_id="get_settlement")
+    def get_settlement(claim_id: str) -> Settlement:
+        """Read the claim's current status, recorded sign-off and simulated payment."""
+        return finance.settlement(claim_id)
 
     @router.post("/api/claims/{claim_id}/decision", operation_id="record_decision")
     def record_decision(claim_id: str, decision: DecisionInput) -> ClaimDetail:

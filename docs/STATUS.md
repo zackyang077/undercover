@@ -1,123 +1,121 @@
 # Status
 
-The harness is implemented locally. Automated acceptance and desktop/mobile
-screenshot review pass. The five-claim live-model acceptance trial is pending
-explicit authorization for the external data transfer; it has not started.
+The durable claims build runs the dashboard on 5173, the business API on 8000,
+and the agent service on 8002. From the repository root run `uv sync`,
+`npm install` and `npm run dev`. Development reads the root .env when present.
+Use the dashboard to start work or run `uv run -m agent --limit 5` with the
+services running. For one claim use `uv run -m agent --claim CLM-1001`.
 
-## Built
+DATABASE_URL selects the Supabase session pooler. Without it, UNDERCOVER_DB
+defaults to undercover.sqlite3 and checkpoints use a sibling file ending in
+.checkpoints.sqlite3. Stop the application before reseeding. `npm run seed`
+resets product data in the configured undercover schema. For a local trial,
+`uv run -m backend.reseed trial.sqlite3` backs up the selected business and
+checkpoint files before reseeding. Configure OPENROUTER_API_KEY for live work
+and LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL for tracing.
 
-- One queue `create_agent` invocation chooses claim order, writes visible to-dos,
-  delegates each claim to a fresh helper, and checks for missed work before finishing.
-- All waiting claims or a positive distinct-claim cap can be selected. The default
-  UI choice is a five-claim trial. Retries consume the same slot; the backend
-  enforces scope/cap/locks transactionally. Stop finishes only the active helper.
-- A failed undecided claim returns to Waiting and gets one fresh automatic retry.
-  Two failures leave it for a handler, distinct from a policy referral or financial
-  sign-off. Failure counts survive subsequent starts/restarts; old pilot failures
-  do not retroactively consume the new budget. Named-claim runs share these rules.
-- Helpers read evidence/history through HTTP and search/read relevant numbered
-  manual and wording sections. Claim activity preserves section titles, versions,
-  and complete text. The instructions page shows both queue and claim instructions.
-- New decisions include policy/manual references, versions, and agent attribution.
-  Older decisions remain readable. Customer history includes platform claims with
-  deduplicated IDs and filing dates, excluding the current claim and future filings.
-- SQLite retains decisions, sign-offs, payments, attempts, activity, and latest
-  queue monitoring. Existing databases upgrade without reseeding. Restart marks
-  active work Interrupted and releases locks; no agent resumes automatically.
-- Separate simulated-payment operations still require the full approved amount.
-  Exactly $1,000 needs no sign-off; $1,000.01 does. Only a handler can sign off.
-  Saved decisions/payments are reconciled after errors rather than repeated.
-- The responsive claims desk preserves the prominent decision/payout result,
-  evidence, handler actions, selected-claim URL, and bundled brand fonts.
+Sign off records the handler and time, then wakes the agent after commit. The
+claim stays In progress until the graph pays. Restart the agent to resume any
+interrupted or signed claims. A stopped batch resumes within the original cap.
+Current implementation and acceptance results appear in the Durable claims
+phase entries below.
 
-## Run
+## Durable claims · Phase 1
 
-From the repository root, with Python 3.12, uv, and Node 26:
+The claim helper now calls the backend payout calculator. A Premium electronics fixture pays $1,050 after third-party compensation and the deductible. The targeted tests cover company limits, financial boundaries, scripted tool use and Langfuse session grouping. Hosted traces are checked during the live trial.
 
-```text
-uv sync
-npm install
-npm run dev
-```
+## Durable claims · Phase 2
 
-Dashboard: http://localhost:5173. Backend: http://127.0.0.1:8000/api/health.
-API docs: http://127.0.0.1:8000/docs.
+SQLAlchemy Core now serves both databases. Queue and detail reads take at most three SELECTs. Legacy SQLite records and checkpoint-file reopening passed; the complete Python suite passed 115 tests. A hosted reseed followed by two initializations preserved 25 Waiting claims and zero attempts, decisions, payments or claim checkpoints. Supabase MCP returned all four business and four checkpoint tables in undercover, with three postgres sessions at inspection. The application and checkpoint pools each cap at two.
 
-Keep `OPENROUTER_API_KEY` in `.env`. Both agent roles default to
-`deepseek/deepseek-v4.1-flash` with low reasoning effort through OpenRouter.
-`MODEL_NAME` still overrides that selection; another override does not receive a
-forced reasoning setting. Existing `.env` values were preserved. Restart the
-backend after changing environment variables.
+## Durable claims · Phase 3
 
-`UNDERCOVER_DB` selects the SQLite file (default `undercover.sqlite3`).
-`BACKEND_URL` selects the agent HTTP backend and Vite proxy (default
-`http://127.0.0.1:8000`). The normal database was not reseeded for this build.
+Identical decision and full-payment requests return the existing claim. Conflicting decisions and incorrect amounts are refused. A signed, unpaid approval is In progress; its payment carries the handler and original sign-off timestamp. The complete Python suite passed 117 tests including concurrent replay and lost responses.
 
-Use Limited trial and Claim limit, or All waiting claims, then Start queue.
-Follow the to-do list and select any task to inspect its claim. Start agent still
-works for a named Waiting claim. Left for a handler means automatic processing
-has stopped; inspect its attempts. Over-limit approvals retain Sign off and pay.
-All payments are simulated. See [QUEUE_RUN.md](QUEUE_RUN.md) for API behavior.
+## Durable claims · Phase 4
 
-## Reseeding and live trials
+The claim worker now uses a synchronous LangGraph. The queue retains create_agent. Real graph nodes and file checkpoints were exercised with a stub model, including process loss across financial commit boundaries, sign-off arriving early, repeated notification and call-budget exhaustion. The Python suite passed 123 tests. A held claim releases its queue slot for execution while retaining its thread, admission and decision.
 
-Stop the server using the selected database first. The explicit-path command
-preserves an existing database in a timestamped `.bak` file, then seeds 25 Waiting
-claims. Test data and pilot records must use different database files.
+## Durable claims · Phase 5
 
-```text
-uv run -m backend.reseed harness-trial.sqlite3
-```
+On macOS, npm run dev started the backend, agent and dashboard on ports 8000, 8002 and 5173 without .env. Chromium showed 25 Waiting claims. Startup uses Node and uv commands portable to Windows; a Windows host was not available for a runtime check. Python tests verified service/CLI requests, durable sign-off during downtime, concurrency and a five-claim interrupted batch. The UI now resumes an unfinished batch under its original cap. All 9 Playwright tests and 17 frontend tests passed, including the separate 8003 notification stand-in.
 
-For a live trial, reseed first, explicitly choose the default model if `.env`
-overrides it, and use a cap of five. On macOS/zsh:
+## Durable claims · Phase 6
 
-```sh
-UNDERCOVER_DB=harness-trial.sqlite3 MODEL_NAME=deepseek/deepseek-v4.1-flash npm run dev
-```
+The final `npm run check` ran from an isolated copy without a project `.env`.
+All 141 Python tests, 18 dashboard tests and 9 Playwright scenarios passed.
+Python coverage was 95.33% and dashboard statement coverage was 97.62%.
+The suite includes a delayed queue completion report arriving during a sign-off.
+The same thread pays once, and an actual payment failure stays recoverable.
 
-On Windows/PowerShell:
+The first hosted trial saved five to-dos, then timed out before admitting any
+claims. The queue now validates all tasks from the same projection. A single
+claim read loads its linked records and that customer's history. In two hosted
+measurements, reading five details fell from 9.09–10.91 s to 2.12–3.57 s.
 
-```powershell
-$env:UNDERCOVER_DB = "harness-trial.sqlite3"
-$env:MODEL_NAME = "deepseek/deepseek-v4.1-flash"
-npm run dev
-```
+The second trial was reseeded to 25 Waiting claims. Queue
+`c7377086-9ee0-4302-a50c-88c29958b049` used the default model, low reasoning,
+and a five-claim cap. At 13:02:10 UTC on 18 November the agent was killed while
+working CLM-1001. Supabase showed one attempt, zero decisions and zero payments
+at checkpoint `1f1e3504-33aa-611e-8002-4f0749bf4f39`, step 2.
+The replacement process resumed the same thread. The start step appeared once
+and the thread reached step 64 with one decision and one simulated $420 payment.
 
-## Validation
+| Claim | Thread | Attempts | Decision | Simulated payment |
+| --- | --- | ---: | --- | ---: |
+| CLM-1001 | `6b8b53ad-202c-4464-b3d7-8080f8c92b89` | 1 | Approve | $420 |
+| CLM-1002 | `83be78b6-7785-4c78-b69a-e6b22c202134` | 1 | Approve | $580 |
+| CLM-1003 | `d591c838-8bdf-433c-9cec-fba627da78a2` | 1 | Approve after sign-off | $3,750 |
+| CLM-1004 | `d085d644-5c56-4376-b41e-3e0650299e22` | 1 | Approve | $186 |
+| CLM-1005 | `cbee4c4a-fe7d-48fc-a31f-4a3fad8be7eb` | 1 | Approve | $243 |
 
-`npm run check` runs ruff formatting/lint, pyright, pytest, Prettier, ESLint,
-strict TypeScript, Vitest, and Playwright. Coverage thresholds remain at 80%.
-The pre-commit hook stays enabled; no checks/rules/exclusions were weakened.
+All five claims have exactly one decision and one payment. Supabase MCP counted
+6 postgres sessions during investigation, while CLM-1003 was paused and again
+during payment recovery. The observed maximum was 6, below the limit of 12.
+
+Playwright MCP signed CLM-1003 as Dana Whitfield (HND-01) at
+13:12:52.823218 UTC. Its payment stored the same handler and sign-off timestamp.
+The payment row was created 7.311 seconds after sign-off. The dashboard showed
+the payment, handler and time 11.241 seconds after the click, above the 5-second
+target. The Langfuse API returned both traces for the session
+`CLM-1003/d591c838-8bdf-433c-9cec-fba627da78a2`.
+
+| Trace | Trace ID | Start (UTC on 2026-11-18) |
+| --- | --- | --- |
+| Investigation | `eca6d464e84a5f8fa55070d200dc88fe` | 13:07:16.002 |
+| Resumed payment | `a1946657b4d916adb288f1d9e851b63d` | 13:12:56.795 |
+
+### Final hosted sign-off check
+
+A fresh five-claim trial used queue `9fe77ef3-389c-49f5-8831-4ce736ec136f`.
+The agent finished its five investigations and left CLM-1003 waiting. At
+13:37:58.739179 UTC on 18 November 2026, Dana Whitfield (HND-01) signed it
+through Playwright MCP. The paid state, original signer and timestamp were
+visible **4.647 seconds after the click**, within the five-second target.
+The sign-off HTTP response ended at +720 ms, the final settlement response
+ended at +4,614 ms, and the browser observed the rendered payment 33 ms later.
+This is one end-to-end measurement after the queue finished its investigations.
+Supabase recorded the payment at 13:38:02.362079 UTC, 3.623 seconds after
+sign-off. The final database check found one attempt, one decision and one
+payment for each claim. The highest observed postgres session count was 6.
+
+| Claim | Thread in the final trial | Attempts | Decision | Simulated payment |
+| --- | --- | ---: | --- | ---: |
+| CLM-1001 | `9572cb2a-bb7d-4264-998c-d561629e792f` | 1 | Approve | $420 |
+| CLM-1002 | `c6bc6c4d-7193-48a8-9e97-d76c7c33aae0` | 1 | Approve | $580 |
+| CLM-1003 | `ac6b0495-3afa-40f0-b79c-07c81aa60515` | 1 | Approve after sign-off | $3,750 |
+| CLM-1004 | `3ba56fd0-5656-4e14-9f61-e4ec8ec5480f` | 1 | Approve | $186 |
+| CLM-1005 | `4c0611c6-5824-4764-9a79-8ee0e38d3ad0` | 1 | Approve | $243 |
+
+For session `CLM-1003/ac6b0495-3afa-40f0-b79c-07c81aa60515`, the Langfuse
+API returned investigation trace `6ba074b59699fdc615c821de6ec6a1c3`
+(13:27:54.115 UTC) and resumed-payment trace
+`c5825699fc9bc8110712dfee24dd4cf9` (13:37:59.244 UTC).
+
+## Earlier builds and lab validation
 
 On November 16, 2026, `npm run check` passed: 80 Python tests with 98.06%
 coverage, 16 dashboard tests with 97.23% statement coverage, and 9 Playwright tests.
-
-The browser scenarios use an isolated temporary SQLite database and scripted
-queue/claim models on ports 8010/5174. They exercise cap enforcement, model-chosen
-order, missed-work correction, retries, handler handoff, stop, reload, section
-reads, responsive layout, sign-off, and duplicate-payment rejection. Unit tests
-cover the additional failure, deadline, migration, and concurrency cases.
-Automated tests make no model calls. No evaluation files were opened.
-
-Playwright MCP is unavailable. Automated Playwright interactions and screenshot
-inspection cover desktop/mobile queue, active/finished work, handler needs,
-section text, instructions, and financial flows; no MCP inspection is claimed.
-
-## Live acceptance status
-
-A fresh separate trial database was prepared at
-`/private/tmp/undercover-harness-live.sqlite3` with the normal backend/dashboard
-and the requested default model. Automatic approval review rejected starting
-the capped run because transmitting claim/customer records to DeepSeek through
-OpenRouter requires explicit payload/destination authorization. No queue run or
-model request was started; all 25 trial claims remain Waiting. The temporary
-trial servers were stopped after this verification. There is no live
-harness accuracy, timing, or five-claim success result to report yet.
-
-This is a local single-process build. Evaluation tooling, authentication,
-customer messaging, real payments, durable execution, and cloud deployment
-remain outside scope. No AWS resources were created or deleted.
 
 ## Week 1 Day 2 notebook retries
 
@@ -172,23 +170,3 @@ notebook regressions), 16 frontend tests, and 9 Playwright tests, with lint,
 formatting and type checks. Playwright required local port access outside the
 sandbox. The two updated definition cells were rerun in the current notebook
 kernel; paid experiments were not rerun.
-
-## Durable claims · Phase 1
-
-The claim helper now calls the backend payout calculator. A Premium electronics fixture pays $1,050 after third-party compensation and the deductible. The targeted tests cover company limits, financial boundaries, scripted tool use and Langfuse session grouping. Hosted traces are checked during the live trial.
-
-## Durable claims · Phase 2
-
-SQLAlchemy Core now serves both databases. Queue and detail reads take at most three SELECTs. Legacy SQLite records and checkpoint-file reopening passed; the complete Python suite passed 115 tests. A hosted reseed followed by two initializations preserved 25 Waiting claims and zero attempts, decisions, payments or claim checkpoints. Supabase MCP returned all four business and four checkpoint tables in undercover, with three postgres sessions at inspection. The application and checkpoint pools each cap at two.
-
-## Durable claims · Phase 3
-
-Identical decision and full-payment requests return the existing claim. Conflicting decisions and incorrect amounts are refused. A signed, unpaid approval is In progress; its payment carries the handler and original sign-off timestamp. The complete Python suite passed 117 tests including concurrent replay and lost responses.
-
-## Durable claims · Phase 4
-
-The claim worker now uses a synchronous LangGraph. The queue retains create_agent. Real graph nodes and file checkpoints were exercised with a stub model, including process loss across financial commit boundaries, sign-off arriving early, repeated notification and call-budget exhaustion. The Python suite passed 123 tests. A held claim releases its queue slot for execution while retaining its thread, admission and decision.
-
-## Durable claims · Phase 5
-
-On macOS, npm run dev started the backend, agent and dashboard on ports 8000, 8002 and 5173 without .env. Chromium showed 25 Waiting claims. Startup uses Node and uv commands portable to Windows; a Windows host was not available for a runtime check. Python tests verified service/CLI requests, durable sign-off during downtime, concurrency and a five-claim interrupted batch. The UI now resumes an unfinished batch under its original cap. All 9 Playwright tests and 17 frontend tests passed, including the separate 8003 notification stand-in.

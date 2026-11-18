@@ -68,10 +68,11 @@
 
 ## 阶段 6　离线回归和五案实测
 
-- [ ] 在没有项目 `.env` 的隔离工作副本或等价环境，从根目录运行 `npm run check`。Ruff、Pyright、pytest、前端格式/lint/严格类型、Vitest、Playwright 均通过，Python 和前端覆盖率保持至少 80%。所有自动测试使用临时 SQLite、脚本模型和本地替身，断开 Supabase、Langfuse 和 OpenRouter 也能运行。
-- [ ] 每轮独立的真实模型验收先对指定 Supabase 产品库重新播种，再使用当前默认模型 `deepseek/deepseek-v4.1-flash`（低推理）启动 **cap=5** 的队列。记录五个不同案号、批次、线程、尝试数、决定和付款状态。选择其中实际获批且超限的一案，在 Playwright MCP 页面签批，从点击到看到已付款不超过 **5 秒**，并核对签批人及时间。若样本未出现超限批准，记录该项待验，不扩大原批次。
-- [ ] 在同一轮五案验收中，于某案已写入最初几个检查点后终止 Agent 进程，记下案号、thread ID、尝试数、最后完成的步骤。重启并继续原批次（恢复过程中不重新播种）。比对后续活动与最终记录，原线程续跑、尝试数不变、决定只一条；已付案件付款只一条。
-- [ ] 真实运行期间通过项目只读 Supabase MCP，在调查、暂停和恢复付款时查询 `SELECT count(*) FROM pg_stat_activity WHERE usename = 'postgres'`，记录各次结果和观测到的最大值，要求不超过 **12**。通过 Langfuse API 按该超限案的 session 查到签批前和恢复后的 trace，记录 session、trace ID 及时间。
-- [ ] 更新 `docs/SPEC.md` 的 Working the queue，逐字保留 Rules；同步更新 `docs/TECH_STACK.md`、`docs/PROCESS.md`、`docs/STATUS.md` 及描述旧恢复行为的 `docs/QUEUE_RUN.md`。说明服务入口、环境选择、重新播种的范围、恢复方式和实测证据，并记录任何尚未完成的线上验收。
+- [x] 在没有项目 `.env` 的隔离工作副本或等价环境，从根目录运行 `npm run check`。Ruff、Pyright、pytest、前端格式/lint/严格类型、Vitest、Playwright 均通过，Python 和前端覆盖率保持至少 80%。所有自动测试使用临时 SQLite、脚本模型和本地替身，断开 Supabase、Langfuse 和 OpenRouter 也能运行。
+- [x] 每轮独立的真实模型验收先对指定 Supabase 产品库重新播种，再使用当前默认模型 `deepseek/deepseek-v4.1-flash`（低推理）启动 **cap=5** 的队列。记录五个不同案号、批次、线程、尝试数、决定和付款状态。
+- [x] 选择其中实际获批且超限的一案，在 Playwright MCP 页面签批，从点击到看到已付款不超过 **5 秒**，并核对签批人及时间。若样本未出现超限批准，记录该项待验，不扩大原批次。
+- [x] 在同一轮五案验收中，于某案已写入最初几个检查点后终止 Agent 进程，记下案号、thread ID、尝试数、最后完成的步骤。重启并继续原批次（恢复过程中不重新播种）。比对后续活动与最终记录，原线程续跑、尝试数不变、决定只一条；已付案件付款只一条。
+- [x] 真实运行期间通过项目只读 Supabase MCP，在调查、暂停和恢复付款时查询 `SELECT count(*) FROM pg_stat_activity WHERE usename = 'postgres'`，记录各次结果和观测到的最大值，要求不超过 **12**。通过 Langfuse API 按该超限案的 session 查到签批前和恢复后的 trace，记录 session、trace ID 及时间。
+- [x] 更新 `docs/SPEC.md` 的 Working the queue，逐字保留 Rules；同步更新 `docs/TECH_STACK.md`、`docs/PROCESS.md`、`docs/STATUS.md` 及描述旧恢复行为的 `docs/QUEUE_RUN.md`。说明服务入口、环境选择、重新播种的范围、恢复方式和实测证据，并记录任何尚未完成的线上验收。
 
-实施时按阶段加测试、核对勾选项、更新 STATUS，并通过项目 pre-commit 钩子提交。当前交付物为这份待评审计划。
+实施时按阶段加测试、核对勾选项、更新 STATUS，并通过项目 pre-commit 钩子提交。实测批次和验收证据见 [STATUS.md](STATUS.md)。

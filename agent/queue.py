@@ -86,7 +86,7 @@ def run_queue(
     for _ in range(2):
         result = agent.invoke({"messages": [*messages]}, config=config)
         check = main.request("GET", f"/api/queue/runs/{queue_run_id}/check")
-        if check["complete"] or check["stop_requested"]:
+        if check["complete"] or check["stop_requested"] or check["resumable"]:
             return result["messages"][-1].text
         messages = result["messages"] + [
             HumanMessage(

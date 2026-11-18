@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import literal, select
 
 from backend import dispatch
 from backend.db import attempts, events
@@ -136,23 +136,35 @@ class Runs:
         return self.list(claim_id)[-1]
 
     def event(self, thread_id: str, event: EventInput) -> dict[str, str]:
-        with self.store.connection(write=True) as connection:
-            status = connection.scalar(
-                select(run_table.c.status).where(run_table.c.thread_id == thread_id)
-            )
-            if status is None:
-                raise HTTPException(404, "Run not found")
-            if status != "running":
-                raise HTTPException(409, "Run is no longer active")
-            connection.execute(
-                events.insert().values(
-                    thread_id=thread_id,
-                    kind=event.kind,
-                    tool_name=event.tool_name,
-                    text=event.text,
-                    created_at=now(),
+        with self.store.connection() as connection:
+            active = (
+                select(
+                    run_table.c.thread_id,
+                    literal(event.kind),
+                    literal(event.tool_name),
+                    literal(event.text),
+                    literal(now()),
                 )
+                .where(
+                    run_table.c.thread_id == thread_id, run_table.c.status == "running"
+                )
+                .with_for_update(read=True)
             )
+            inserted = connection.scalar(
+                events.insert()
+                .from_select(
+                    ["thread_id", "kind", "tool_name", "text", "created_at"], active
+                )
+                .returning(events.c.id)
+            )
+            if inserted is None:
+                if not connection.scalar(
+                    select(run_table.c.thread_id).where(
+                        run_table.c.thread_id == thread_id
+                    )
+                ):
+                    raise HTTPException(404, "Run not found")
+                raise HTTPException(409, "Run is no longer active")
         return {"status": "recorded"}
 
     def finish(self, thread_id: str, status: str, error: str):
@@ -189,12 +201,17 @@ class Runs:
                 error = error or "The helper finished without a recorded decision"
             elif detail.status == "waiting_sign_off":
                 status, error = "paused", ""
+            elif detail.sign_off and not detail.payment and not error:
+                # A successful pause can be reported after sign-off has already
+                # activated this thread. Its resumed invocation owns completion.
+                status = None
             elif detail.decision["outcome"] == "approve" and not detail.payment:
                 status = "interrupted"
                 error = error or "Decision saved; payment pending on this thread"
             else:
                 status, error = "completed", ""
-            self.finish(thread_id, status, error)
+            if status is not None:
+                self.finish(thread_id, status, error)
         return next(r for r in self.list(claim_id) if r.thread_id == thread_id)
 
     async def attempt(self, claim_id: str, thread_id: str) -> Run:

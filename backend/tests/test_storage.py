@@ -28,10 +28,10 @@ def test_read_queue_batches_claims_and_reuses_current_transaction(tmp_path):
         )
         count_before = len(statements)
         assert len(store.queue()) == 25
-        assert len(statements) - count_before <= 3
+        assert len(statements) - count_before == 1
         count_before = len(statements)
         assert store.detail("CLM-1001").approval_limit == 200
-        assert len(statements) - count_before <= 3
+        assert len(statements) - count_before <= 2
 
 
 def test_legacy_sqlite_layout_survives_initialization(tmp_path):

@@ -14,7 +14,7 @@ cap admission, two-attempt limits, saved outcomes, and financial rules.
 | `PUT /api/queue/runs/{queue_run_id}/todos` | `write_queue_todos` | Required `items` with claim ID, text, and a status matching actual work. |
 | `POST /api/queue/runs/{queue_run_id}/claims/{claim_id}/attempts` | `admit_queue_claim` | Atomically reserve a slot and attempt/thread; invoked by the delegation tool. |
 | `POST /api/queue/runs/{queue_run_id}/attempts/{thread_id}/finish` | `finish_queue_attempt` | Required `error` string; verify saved business records and release the attempt. Repeated reports do not double-count failures. |
-| `GET /api/queue/runs/{queue_run_id}/check` | `check_queue` | Remaining candidates, pending retries, unused slots, active work, stop state, and completion readiness. |
+| `GET /api/queue/runs/{queue_run_id}/check` | `check_queue` | Remaining candidates, pending retries, unused slots, active work, payable threads to resume, stop state, and completion readiness. |
 
 A cap counts distinct claims, including terminal failures; a retry reuses its
 slot. The agent selects which claims to admit rather than receiving a fixed first
@@ -26,7 +26,7 @@ correction before an incomplete run is reported as Failed.
 ## Failures and handler work
 
 - An undecided first failure returns to Waiting and receives one fresh retry.
-- Two failed/interrupted harness attempts persist a Needs handler state without
+- Two failed harness attempts persist a Needs handler state without
   fabricating a policy decision. Later runs do not reset the budget.
 - Saved decisions are never replaced. Saved payments are never repeated. A
   permissible unpaid approval is reconciled separately; financial sign-off is
@@ -39,8 +39,13 @@ correction before an incomplete run is reported as Failed.
 To-dos use `pending`, `in_progress`, `done`, and `needs_handler`. The dashboard
 shows To do, In progress, Done, and Left for a handler, and preserves monitoring
 across refresh. A stop begins no new claim or retry after the active helper exits.
-Restart records Interrupted and preserves attempts/to-dos; another explicit run
-is needed. This is persisted monitoring in one local process, not durable execution.
+Restarting the agent service drains active and signed work, then continues the
+current batch. After a handler requests a stop, the next queue start resumes an
+unfinished batch with its original ID, target, admissions and to-dos. A crash
+resumes the current helper thread without consuming another attempt.
+An approval waiting for a handler can finish its queue item. If recording an
+already authorized payment is interrupted, the original batch stays recoverable
+until its claim thread has recorded the payment.
 
 The latest queue summary is retained; claim attempt/activity history is retained
 across subsequent queue starts. Named-claim runs use the same recovery/payment

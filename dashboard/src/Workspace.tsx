@@ -26,6 +26,87 @@ function ClaimStart({
   );
 }
 
+function poll<T>(
+  read: () => Promise<T>,
+  update: (value: T) => boolean,
+  onError: (error: string) => void,
+  interval: number,
+) {
+  let active = true;
+  let timer: ReturnType<typeof setTimeout>;
+  async function refresh() {
+    try {
+      const value = await read();
+      if (!active) return;
+      onError("");
+      if (!update(value)) return;
+      timer = setTimeout(() => {
+        void refresh();
+      }, interval);
+    } catch (failure) {
+      if (!active) return;
+      onError(message(failure));
+      timer = setTimeout(() => {
+        void refresh();
+      }, 1500);
+    }
+  }
+  void refresh();
+  return () => {
+    active = false;
+    clearTimeout(timer);
+  };
+}
+
+function isProcessing(detail: ClaimDetail | null) {
+  return (
+    detail?.status === "in_progress" ||
+    (detail?.decision?.outcome === "approve" &&
+      !detail.payment &&
+      detail.status !== "waiting_sign_off")
+  );
+}
+
+type Settlement = Pick<ClaimDetail, "status" | "sign_off" | "payment">;
+
+function useClaimDetail(
+  claimId: string,
+  revision: number,
+  queueRunning: boolean,
+) {
+  const [detail, setDetail] = useState<ClaimDetail | null>(null);
+  const [fetchError, setFetchError] = useState("");
+  const approved = detail?.decision?.outcome === "approve";
+  const paid = !!detail?.payment;
+  useEffect(() => {
+    const path = `/claims/${claimId}`;
+    if (paid) return;
+    if (approved) {
+      return poll(
+        () => api<Settlement>(`${path}/settlement`),
+        (settlement) => {
+          setDetail((saved) => saved && { ...saved, ...settlement });
+          return (
+            !settlement.payment && settlement.status !== "waiting_sign_off"
+          );
+        },
+        setFetchError,
+        350,
+      );
+    }
+    return poll(
+      () => api<ClaimDetail>(path),
+      (next) => {
+        setDetail(next);
+        return queueRunning || isProcessing(next);
+      },
+      setFetchError,
+      350,
+    );
+  }, [claimId, revision, queueRunning, approved, paid]);
+  return { detail, fetchError };
+}
+
 export function Workspace({
   claimId,
   handlers,
@@ -39,52 +120,40 @@ export function Workspace({
   onChange: () => Promise<void>;
   queueRunning: boolean;
 }>) {
-  const [detail, setDetail] = useState<ClaimDetail | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState("");
-  const [fetchError, setFetchError] = useState("");
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [activityError, setActivityError] = useState("");
+  const [listError, setListError] = useState("");
+  const { detail, fetchError } = useClaimDetail(
+    claimId,
+    revision,
+    queueRunning,
+  );
+  const status = detail?.status;
+  const processing = isProcessing(detail);
+  useEffect(
+    () =>
+      poll(
+        () => api<Run[]>(`/claims/${claimId}/runs`),
+        (activity) => {
+          setRuns(activity);
+          return (
+            queueRunning ||
+            processing ||
+            activity.some((run) => run.status === "running")
+          );
+        },
+        setActivityError,
+        700,
+      ),
+    [claimId, revision, queueRunning, processing],
+  );
   useEffect(() => {
-    let cancelled = false;
-    let polling = queueRunning;
-    let timer: ReturnType<typeof setTimeout>;
-    async function refresh() {
-      try {
-        const [next, activity] = await Promise.all([
-          api<ClaimDetail>(`/claims/${claimId}`),
-          api<Run[]>(`/claims/${claimId}/runs`),
-        ]);
-        await onChange();
-        if (cancelled) return;
-        setDetail(next);
-        setRuns(activity);
-        setFetchError("");
-        polling =
-          queueRunning ||
-          next.status === "in_progress" ||
-          activity.some((run) => run.status === "running");
-        if (polling) {
-          timer = setTimeout(() => {
-            void refresh();
-          }, 350);
-        }
-      } catch (failure) {
-        if (!cancelled) {
-          setFetchError(message(failure));
-          if (polling)
-            timer = setTimeout(() => {
-              void refresh();
-            }, 1500);
-        }
-      }
-    }
-    void refresh();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [claimId, revision, onChange, queueRunning]);
+    if (!status) return;
+    return poll(onChange, () => false, setListError, 700);
+  }, [status, processing, onChange]);
 
   async function act(action: () => Promise<unknown>) {
     setBusy(true);
@@ -114,6 +183,9 @@ export function Workspace({
   if (retryable) startLabel = "Retry agent";
   if (active) startLabel = "Agent is working";
   if (queueRunning && !active) startLabel = "Queue is running";
+  const visibleError = [error, fetchError, activityError, listError].find(
+    Boolean,
+  );
   return (
     <div className="workspace">
       <section className="panel claim-heading">
@@ -145,9 +217,9 @@ export function Workspace({
           />
         </div>
       </section>
-      {(error || fetchError) && (
+      {visibleError && (
         <p className="error-banner" role="alert">
-          {error || fetchError}
+          {visibleError}
         </p>
       )}
       {detail.status === "needs_handler" && (

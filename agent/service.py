@@ -11,6 +11,7 @@ import httpx
 from fastapi import FastAPI
 
 from agent import main
+from agent.claim_graph import WAITING_FOR_SIGN_OFF
 from agent.queue import run_queue
 
 log = logging.getLogger(__name__)
@@ -32,8 +33,10 @@ def failure_text(exc: Exception) -> str:
 class Worker:
     def __init__(self, claim_runner: Callable = main.run, queue_runner=run_queue):
         self.claim_runner = claim_runner
+        self.can_resume_directly = claim_runner is main.run
         self.queue_runner = queue_runner
         self.claim_locks: dict[str, Lock] = {}
+        self.waiting_threads: dict[str, str] = {}
         self.lock = Lock()
 
     def claim_lock(self, claim_id: str) -> Lock:
@@ -42,10 +45,23 @@ class Worker:
 
     def claim(self, claim_id: str, thread_id: str) -> str:
         with self.claim_lock(claim_id):
-            return self.claim_runner(claim_id, thread_id)
+            return self.run_claim(claim_id, thread_id)
+
+    def run_claim(self, claim_id: str, thread_id: str) -> str:
+        self.waiting_threads.pop(claim_id, None)
+        result = self.claim_runner(claim_id, thread_id)
+        if self.can_resume_directly and result == WAITING_FOR_SIGN_OFF:
+            self.waiting_threads[claim_id] = thread_id
+        return result
 
     def resume(self, claim_id: str):
         with self.claim_lock(claim_id):
+            if waiting := self.waiting_threads.get(claim_id):
+                saved = api("GET", f"/api/work/{claim_id}/signed-thread")
+                if saved and saved["thread_id"] == waiting:
+                    self.waiting_threads.pop(claim_id)
+                    self.process({"claim_id": claim_id, **saved})
+                    return
             target = api("POST", f"/api/work/{claim_id}/activate")
             if not target:
                 return
@@ -59,7 +75,10 @@ class Worker:
         thread = target["thread_id"]
         error = ""
         try:
-            self.claim_runner(claim_id, thread)
+            if signed := target.get("sign_off"):
+                self.claim_runner(claim_id, thread, signed_record=signed)
+            else:
+                self.run_claim(claim_id, thread)
         except Exception as exc:
             error = failure_text(exc)
         return api("POST", f"/api/work/{claim_id}/{thread}/finish", {"error": error})[
@@ -71,6 +90,8 @@ class Worker:
         for claim_id in work["claims"]:
             self.resume(claim_id)
         batch = api("GET", "/api/queue/runs/current")
+        if batch and batch["status"] == "interrupted":
+            batch = api("POST", f"/api/work/queue/{batch['queue_run_id']}/continue")
         if not batch or batch["status"] != "running":
             return
         status, summary, error = "completed", "", ""

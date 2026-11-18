@@ -27,6 +27,7 @@ from agent.middleware import RETRY_DELAY, transient
 from agent.tracing import claim_config
 
 MAX_MODEL_CALLS = 30
+WAITING_FOR_SIGN_OFF = "Waiting for sign-off"
 
 
 class ClaimState(TypedDict):
@@ -49,7 +50,7 @@ def recorded(detail: dict) -> dict:
         return {
             "route": "sign_off",
             "amount": amount,
-            "summary": "Waiting for sign-off",
+            "summary": WAITING_FOR_SIGN_OFF,
         }
     return {"route": "payment", "amount": amount}
 
@@ -147,7 +148,9 @@ class ClaimGraph:
                 next_step = recorded(result)
                 if next_step["route"] == "sign_off":
                     self.event("waiting_sign_off", "Waiting for handler sign-off")
-                return next_step
+                # The decision is saved. Earlier investigation messages remain
+                # in checkpoint history but are not needed by the payment steps.
+                return {**next_step, "messages": []}
             if "error" in result:
                 self.event("refusal", str(result["error"]))
             responses.append(
@@ -160,20 +163,24 @@ class ClaimGraph:
         return {"messages": [*state["messages"], *responses], "route": "reserve"}
 
     def sign_off(self, state: ClaimState) -> dict:
-        interrupt({"claim_id": self.claim_id, "amount": state["amount"]})
-        detail = self.request("GET", self.path)
-        if not detail["sign_off"]:
+        signed = interrupt({"claim_id": self.claim_id, "amount": state["amount"]})
+        if not signed:
             raise RuntimeError("Handler sign-off is required")
         self.event("sign_off", "Resuming after recorded handler sign-off")
-        return recorded(detail)
+        return {"route": "payment"}
+
+    def saved_sign_off(self) -> dict | None:
+        record = self.request("GET", f"/api/work/{self.claim_id}/sign-off")
+        return record["sign_off"]
 
     def payment(self, state: ClaimState) -> dict:
-        self.event("payment", "Recording approved simulated payment")
+        self.check_time()
         detail = self.request(
             "POST", f"{self.path}/payment", {"amount": state["amount"]}
         )
         if not detail.get("payment"):
             raise RuntimeError(str(detail.get("error", "Payment was not recorded")))
+        self.event("payment", "Recorded approved simulated payment")
         return recorded(detail)
 
     def compile(self, saver: BaseCheckpointSaver):
@@ -193,12 +200,19 @@ class ClaimGraph:
         return builder.compile(checkpointer=saver)
 
 
-def work(nodes: ClaimGraph) -> str:
+def work(nodes: ClaimGraph, signed_record: dict | None) -> str:
     claim_id, thread_id = nodes.claim_id, nodes.thread_id
     config = claim_config(claim_id, thread_id)
     config["recursion_limit"] = 4 * MAX_MODEL_CALLS + 12
     with open_saver() as saver:
         graph = nodes.compile(saver)
+        if signed_record is not None:
+            # The service observed this thread's durable interrupt locally and
+            # matched it to the backend's committed sign-off before calling us.
+            result = graph.invoke(
+                Command(resume=signed_record), config, durability="sync"
+            )
+            return result["summary"]
         snapshot = graph.get_state(config)
         inputs: ClaimState | Command | None = None
         if not snapshot.values:
@@ -217,25 +231,21 @@ def work(nodes: ClaimGraph) -> str:
         elif not snapshot.next:
             return snapshot.values["summary"]
         elif snapshot.interrupts:
-            detail = nodes.request("GET", nodes.path)
-            if not detail["sign_off"]:
-                return "Waiting for sign-off"
-            inputs = Command(resume=detail["sign_off"])
+            signed = nodes.saved_sign_off()
+            if not signed:
+                return WAITING_FOR_SIGN_OFF
+            inputs = Command(resume=signed)
         elif snapshot.next == ("model",):
             # A crash may have happened after sending the reserved provider call.
             # Reserve a fresh slot before issuing a possibly repeated request.
             graph.update_state(config, {"route": "reserve"}, as_node="model")
         result = graph.invoke(inputs, config, durability="sync")
-        if result.get("__interrupt__"):
-            # Sign-off may have committed before this waiting checkpoint was written.
-            detail = nodes.request("GET", nodes.path)
-            if detail["sign_off"]:
-                result = graph.invoke(
-                    Command(resume=detail["sign_off"]), config, durability="sync"
-                )
+        # Sign-off may have committed before this waiting checkpoint was written.
+        if result.get("__interrupt__") and (signed := nodes.saved_sign_off()):
+            result = graph.invoke(Command(resume=signed), config, durability="sync")
         return result["summary"]
 
 
-def run(nodes: ClaimGraph) -> str:
+def run(nodes: ClaimGraph, signed_record: dict | None = None) -> str:
     """Advance one claim from its saved checkpoint."""
-    return Context().run(work, nodes)
+    return Context().run(work, nodes, signed_record)

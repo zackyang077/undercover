@@ -1,7 +1,6 @@
 """Portable business storage and explicit, one-time seed loading."""
 
 import json
-from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
 from threading import local
@@ -11,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import Connection, func, select
 from sqlalchemy.schema import CreateSchema
 
+from backend.claim_queries import ClaimQueries
 from backend.db import attempts, engine_for, key, metadata, records, runs
 from backend.guidance import initialize as initialize_guidance
 from backend.schemas import Claim, ClaimDetail, ClaimSummary, Customer, Plan, Policy
@@ -26,21 +26,6 @@ MAX_ATTEMPTS = 2
 COMPANY_FIELDS = ("name", "currency", "payout_approval_limit", "policy_wording_version")
 
 
-def claim_status(claim_id, data, running, failures, limit) -> str:
-    decision = data["decisions"].get(claim_id)
-    signed = data["sign_offs"].get(claim_id)
-    if decision:
-        if decision["outcome"] == "approve" and claim_id not in data["payments"]:
-            if signed:
-                return "in_progress"
-            if decision["payout_amount"] > limit:
-                return "waiting_sign_off"
-        return "decided"
-    if running:
-        return "in_progress"
-    return "needs_handler" if failures >= MAX_ATTEMPTS else "waiting"
-
-
 class Store:
     """Own the engine and share a connection across nested synchronous operations."""
 
@@ -48,6 +33,9 @@ class Store:
         self.path = path
         self.engine = engine_for(path)
         self._local = local()
+        self.queries = ClaimQueries(
+            self.engine.dialect.name == "postgresql", MAX_ATTEMPTS
+        )
 
     @contextmanager
     def connection(self, *, write: bool = False):
@@ -141,95 +129,48 @@ class Store:
             )
             return [json.loads(body) for body in rows]
 
-    def _snapshot(self, connection: Connection, *, include_policies: bool = False):
-        kinds = ("claims", "customers", "decisions", "sign_offs", "payments")
-        settings = records.c.kind == "settings"
-        if include_policies:
-            kinds += ("plans", "policies")
-            settings &= records.c.id.in_(("company", "plans"))
-        else:
-            settings &= records.c.id == "company"
-        snapshot: dict[str, dict[str, Any]] = defaultdict(dict)
-        query = (
-            select(records)
-            .where(records.c.kind.in_(kinds) | settings)
-            .order_by(records.c.kind, records.c.id)
-        )
-        for kind, record_id, body in connection.execute(query):
-            snapshot[kind][record_id] = json.loads(body)
-        return snapshot
-
     def detail(self, claim_id: str) -> ClaimDetail:
-        with self.connection() as connection:
-            data = self._snapshot(connection, include_policies=True)
-            if claim_id not in data["claims"]:
+        with self.connection() as conn:
+            row = (
+                conn.execute(self.queries.detail, {"requested_claim": claim_id})
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
                 raise HTTPException(404, "Record not found")
-            claim = data["claims"][claim_id]
-            policy = data["policies"][claim["policy_id"]]
-            plans = data["settings"]["plans"]
-            decision = data["decisions"].get(claim_id)
-            signed = data["sign_offs"].get(claim_id)
-            payment = data["payments"].get(claim_id)
-            running = connection.scalar(
-                select(runs.c.thread_id).where(
-                    runs.c.claim_id == claim_id, runs.c.status == "running"
-                )
-            )
-            limit = data["settings"]["company"]["payout_approval_limit"]
-            status = claim_status(
-                claim_id,
-                data,
-                running,
-                self.failure_count(connection, claim_id),
-                limit,
-            )
-            return ClaimDetail(
-                claim=Claim.model_validate(claim),
-                policy=Policy.model_validate(policy),
-                customer=self.customer_history(claim, data),
-                plan=Plan.model_validate(data["plans"][policy["plan"]]),
-                add_ons=[
-                    a for a in plans["add_ons"] if a["add_on"] in policy["add_ons"]
-                ],
-                deductible_applies_to=plans["deductible_applies_to"],
-                approval_limit=limit,
-                status=status,
-                decision=decision,
-                sign_off=signed,
-                payment=payment,
-            )
-
-    @staticmethod
-    def customer_history(claim: dict, data: dict) -> Customer:
-        customer = data["customers"][claim["customer_id"]]
-        history = {
-            c["claim_id"]: c
-            for c in customer["previous_claims"]
-            if c["filed_on"] <= claim["submitted_on"]
-        }
-        for other in data["claims"].values():
-            if (
-                other["customer_id"] != claim["customer_id"]
-                or other["submitted_on"] > claim["submitted_on"]
-            ):
-                continue
-            decision = data["decisions"].get(other["claim_id"])
-            payment = data["payments"].get(other["claim_id"])
-            history[other["claim_id"]] = {
-                "claim_id": other["claim_id"],
-                "filed_on": other["submitted_on"],
-                "summary": other["summary"],
-                "outcome": decision["outcome"] if decision else "open",
-                "amount_paid": payment["amount"] if payment else 0,
+            claim, policy = json.loads(row["claim"]), json.loads(row["policy"])
+            plans = json.loads(row["plans"])
+            customer = json.loads(row["customer"])
+            history = {
+                c["claim_id"]: c
+                for c in customer["previous_claims"]
+                if c["filed_on"] <= claim["submitted_on"]
             }
-        history.pop(claim["claim_id"], None)
-        return Customer.model_validate(
-            {
-                **customer,
-                "previous_claims": sorted(
-                    history.values(), key=lambda c: c["filed_on"]
-                ),
-            }
+            previous = conn.execute(
+                self.queries.history,
+                {
+                    "current_claim": claim_id,
+                    "customer_id": claim["customer_id"],
+                    "filed_on": claim["submitted_on"],
+                },
+            ).mappings()
+            history.update((r["claim_id"], dict(r)) for r in previous)
+        history.pop(claim_id, None)
+        customer["previous_claims"] = sorted(
+            history.values(), key=lambda c: c["filed_on"]
+        )
+        return ClaimDetail(
+            claim=Claim.model_validate(claim),
+            policy=Policy.model_validate(policy),
+            customer=Customer.model_validate(customer),
+            plan=Plan.model_validate_json(row["plan"]),
+            add_ons=[a for a in plans["add_ons"] if a["add_on"] in policy["add_ons"]],
+            deductible_applies_to=plans["deductible_applies_to"],
+            approval_limit=row["approval_limit"],
+            status=row["status"],
+            decision=json.loads(row["decision"]) if row["decision"] else None,
+            payment=json.loads(row["payment"]) if row["payment"] else None,
+            sign_off=json.loads(row["sign_off"]) if row["sign_off"] else None,
         )
 
     def failures(self, claim_id: str) -> int:
@@ -253,39 +194,8 @@ class Store:
         return row[1] if row else 0
 
     def queue(self) -> list[ClaimSummary]:
-        with self.connection() as connection:
-            data = self._snapshot(connection)
-            limit = data["settings"]["company"]["payout_approval_limit"]
-            running = set(
-                connection.scalars(
-                    select(runs.c.claim_id).where(runs.c.status == "running")
-                )
-            )
-            failures = {r[0]: r[1] for r in connection.execute(self.failed_attempts())}
-        result = []
-        for cid, claim in data["claims"].items():
-            decision = data["decisions"].get(cid)
-            payment = data["payments"].get(cid)
-            outcome = decision["outcome"] if decision else ""
-            result.append(
-                ClaimSummary(
-                    claim_id=cid,
-                    customer_name=data["customers"][claim["customer_id"]]["name"],
-                    summary=claim["summary"],
-                    claim_type=claim["claim_type"],
-                    amount_claimed=claim["amount_claimed"],
-                    status=claim_status(
-                        cid,
-                        data,
-                        cid in running,
-                        failures.get(cid, 0),
-                        limit,
-                    ),
-                    outcome=outcome,
-                    payout_amount=decision["payout_cents"] / 100 if decision else None,
-                    payment_status="paid"
-                    if payment
-                    else ("unpaid" if outcome == "approve" else "not_applicable"),
-                )
-            )
-        return result
+        with self.connection() as conn:
+            return [
+                ClaimSummary.model_validate(r)
+                for r in conn.execute(self.queries.queue).mappings()
+            ]

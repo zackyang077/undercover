@@ -1,12 +1,21 @@
 """Decisions and the server-enforced simulated payment gate."""
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import HTTPException
 from pydantic import JsonValue
+from sqlalchemy import case, select, tuple_
 
-from backend.schemas import ClaimDetail, DecisionInput, PaymentInput, SignOffInput
+from backend.db import records, runs
+from backend.schemas import (
+    ClaimDetail,
+    DecisionInput,
+    PaymentInput,
+    Settlement,
+    SignOffInput,
+)
 from backend.storage import Store
 
 
@@ -17,6 +26,43 @@ def now() -> str:
 class Finance:
     def __init__(self, store: Store):
         self.store = store
+
+    def settlement(self, claim_id: str) -> Settlement:
+        with self.store.connection() as connection:
+            row = (
+                connection.execute(
+                    self.store.queries.settlement, {"requested_claim": claim_id}
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is None:
+            raise HTTPException(404, "Record not found")
+        return Settlement.model_validate(row)
+
+    @staticmethod
+    def payment_facts(connection, claim_id: str, handler_id: str | None = None) -> dict:
+        keys = [
+            (kind, claim_id)
+            for kind in ("claims", "decisions", "sign_offs", "payments")
+        ]
+        keys.append(("settings", "company"))
+        if handler_id is not None:
+            keys.append(("handlers", handler_id))
+        facts = {
+            kind: json.loads(body)
+            for kind, body in connection.execute(
+                select(
+                    records.c.kind,
+                    case((records.c.kind == "claims", "{}"), else_=records.c.body),
+                ).where(tuple_(records.c.kind, records.c.id).in_(keys))
+            )
+        }
+        if "claims" not in facts or (
+            handler_id is not None and "handlers" not in facts
+        ):
+            raise HTTPException(404, "Record not found")
+        return facts
 
     def decide(self, claim_id: str, decision: DecisionInput) -> ClaimDetail:
         # Compare only the submitted business fields across a checkpoint replay.
@@ -49,18 +95,17 @@ class Finance:
 
     def sign_off(self, claim_id: str, request: SignOffInput) -> dict[str, JsonValue]:
         with self.store.connection(write=True) as connection:
-            self.store.get("claims", claim_id)
-            handler = self.store.get("handlers", request.handler_id)
+            facts = self.payment_facts(connection, claim_id, request.handler_id)
+            handler = facts["handlers"]
             if not handler["can_approve_over_limit"]:
                 raise HTTPException(403, "Handler cannot approve over-limit payouts")
-            decision = self.store.find(connection, "decisions", claim_id)
+            decision = facts.get("decisions")
             if not decision or decision["outcome"] != "approve":
                 raise HTTPException(409, "An approved decision is required")
-            if self.store.find(connection, "sign_offs", claim_id):
+            if "sign_offs" in facts:
                 raise HTTPException(409, "Sign-off already recorded")
-            if (
-                self.store.find(connection, "payments", claim_id)
-                or decision["payout_cents"] <= self.limit_cents()
+            if "payments" in facts or decision["payout_cents"] <= self.limit_cents(
+                facts
             ):
                 raise HTTPException(409, "This payout does not need sign-off")
             record = {
@@ -69,25 +114,38 @@ class Finance:
                 "created_at": now(),
             }
             self.store.insert(connection, "sign_offs", claim_id, record)
+            latest_thread = (
+                select(runs.c.thread_id)
+                .where(runs.c.claim_id == claim_id)
+                .order_by(runs.c.started_at.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+            connection.execute(
+                runs.update()
+                .where(runs.c.thread_id == latest_thread, runs.c.status == "paused")
+                .values(status="running", finished_at="", error="")
+            )
         return record
 
-    def limit_cents(self) -> int:
-        limit = self.store.get("settings", "company")["payout_approval_limit"]
+    @staticmethod
+    def limit_cents(facts: dict) -> int:
+        limit = facts["settings"]["payout_approval_limit"]
         return int(Decimal(str(limit)) * 100)
 
     def pay(self, claim_id: str, request: PaymentInput) -> ClaimDetail:
         cents = int(request.amount * 100)
         with self.store.connection(write=True) as connection:
-            self.store.get("claims", claim_id)
-            decision = self.store.find(connection, "decisions", claim_id)
+            facts = self.payment_facts(connection, claim_id)
+            decision = facts.get("decisions")
             if not decision or decision["outcome"] != "approve":
                 raise HTTPException(409, "An approved decision is required")
-            saved = self.store.find(connection, "payments", claim_id)
-            signed = self.store.find(connection, "sign_offs", claim_id)
+            saved = facts.get("payments")
+            signed = facts.get("sign_offs")
             if (
                 not saved
                 and not signed
-                and decision["payout_cents"] > self.limit_cents()
+                and decision["payout_cents"] > self.limit_cents(facts)
             ):
                 raise HTTPException(403, "Handler sign-off is required before payment")
             if cents != decision["payout_cents"]:

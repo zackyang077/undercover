@@ -17,14 +17,16 @@ from backend.schemas import DecisionInput
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
-CLAIM_SECONDS = 180
+CLAIM_SECONDS = int(
+    os.getenv("UNDERCOVER_CLAIM_SECONDS", "600" if os.getenv("DATABASE_URL") else "180")
+)
 
 
 def backend() -> httpx.Client:
     """Return a client for the local claims API."""
     return httpx.Client(
         base_url=os.getenv("BACKEND_URL", "http://127.0.0.1:8000"),
-        timeout=10,
+        timeout=45,
     )
 
 
@@ -142,7 +144,13 @@ def model() -> ChatOpenAI:
     )
 
 
-def run(claim_id: str, thread_id: str, llm: BaseChatModel | None = None) -> str:
+def run(
+    claim_id: str,
+    thread_id: str,
+    llm: BaseChatModel | None = None,
+    *,
+    signed_record: dict | None = None,
+) -> str:
     """Advance the claim graph on one durable thread."""
     nodes = claim_graph.ClaimGraph(
         claim_id=claim_id,
@@ -153,4 +161,4 @@ def run(claim_id: str, thread_id: str, llm: BaseChatModel | None = None) -> str:
         get_model=lambda: llm or model(),
         deadline=time.monotonic() + CLAIM_SECONDS,
     )
-    return claim_graph.run(nodes)
+    return claim_graph.run(nodes, signed_record)

@@ -24,7 +24,10 @@ let runs: Run[];
 const requests: string[] = [];
 
 function setup(
-  override?: (path: string, init?: RequestInit) => Response | undefined,
+  override?: (
+    path: string,
+    init?: RequestInit,
+  ) => Promise<Response> | Response | undefined,
 ) {
   detail = structuredClone(fixture);
   runs = [];
@@ -58,7 +61,13 @@ function setup(
           detail.status = "in_progress";
         }
         body = runs;
-      } else if (url.includes("/claims/")) body = detail;
+      } else if (url.endsWith("/settlement"))
+        body = {
+          status: detail.status,
+          sign_off: detail.sign_off,
+          payment: detail.payment,
+        };
+      else if (url.includes("/claims/")) body = detail;
       return Promise.resolve(Response.json(body));
     }),
   );
@@ -129,7 +138,7 @@ it("polls an active run and shows a paid decision without reload", async () => {
   ).toBeDefined();
   expect(within(result).getByText("$420.00", { exact: true })).toBeDefined();
   const queue = screen.getByRole("complementary", { name: "Claims queue" });
-  expect(within(queue).getByText("Approved · $420.00")).toBeDefined();
+  expect(await within(queue).findByText("Approved · $420.00")).toBeDefined();
   expect(within(queue).getByText("Paid (simulated)")).toBeDefined();
   expect(screen.queryByRole("button", { name: "Start agent" })).toBeNull();
 });
@@ -176,9 +185,44 @@ it("signs once, then follows the agent payment across reopening the claim", asyn
   };
   detail.status = "decided";
   expect(await screen.findByText("Simulated payment recorded")).toBeDefined();
-  expect(screen.getByText("Paid (simulated)")).toBeDefined();
+  expect(await screen.findByText("Paid (simulated)")).toBeDefined();
   expect(requests.filter((path) => path.endsWith("/sign-off"))).toHaveLength(1);
   expect(requests.filter((path) => path.endsWith("/payment"))).toHaveLength(0);
+  // One evidence read per mount; payment polling only reads settlement.
+  expect(
+    requests.filter((path) => path === "GET /api/claims/CLM-1001"),
+  ).toHaveLength(2);
+  expect(requests).toContain("GET /api/claims/CLM-1001/settlement");
+  expect(screen.getByText(fixture.claim.story)).toBeDefined();
+});
+
+it("shows a paid claim while the activity log and refreshed queue are still loading", async () => {
+  let firstList = true;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  setup((path) => {
+    if (path.endsWith("/CLM-1001/runs"))
+      return pending.then(() => Response.json([running]));
+    if (path === "/api/claims") {
+      if (!firstList) return pending.then(() => Response.json(initialQueue));
+      firstList = false;
+    }
+  });
+  detail.decision = approved;
+  detail.status = "in_progress";
+  render(<App />);
+  expect(await screen.findByText(fixture.claim.story)).toBeDefined();
+  detail.status = "decided";
+  detail.payment = {
+    amount: 420,
+    created_at: "2026-11-18T10:00:00Z",
+    simulated: true,
+  };
+  expect(await screen.findByText("Simulated payment recorded")).toBeDefined();
+  release();
+  expect(await screen.findByText("Read claim")).toBeDefined();
 });
 
 it.each(["decline", "refer"] as const)(

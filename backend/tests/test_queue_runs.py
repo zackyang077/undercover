@@ -7,13 +7,14 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
+from sqlalchemy import event
 
 from agent import main
 from agent.queue import run_queue
 from agent.tests.test_agent import StubModel, call, replies
 from backend.finance import Finance
 from backend.main import create_app
-from backend.queue_runs import CappedClaims, QueueRuns
+from backend.queue_runs import CappedClaims, QueueRuns, Todo, Todos
 from backend.runs import Runs
 from backend.schemas import DecisionInput
 from backend.storage import Store
@@ -21,6 +22,41 @@ from backend.tests.queue_stub import scripted_queue
 from backend.tests.test_finance import decision
 
 CURRENT = "/api/queue/runs/current"
+
+
+def test_todo_validation_and_queue_close_use_one_status_snapshot(tmp_path):
+    store = Store(tmp_path / "round-trips.sqlite3")
+    store.initialize()
+    queue = QueueRuns(Runs(store, None))
+    batch = queue.start()
+    statements = []
+
+    @event.listens_for(store.engine, "before_cursor_execute")
+    def count_queries(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    counts = []
+    for size in (1, len(batch.items)):
+        tasks = [
+            Todo(claim_id=item.claim_id, text="Review", status="pending")
+            for item in batch.items[:size]
+        ]
+        statements.clear()
+        queue.write_todos(batch.queue_run_id, Todos(items=tasks))
+        counts.append(len(statements))
+    assert counts[0] == counts[1] <= 6
+
+    # A claim could have been resolved elsewhere since the batch started.
+    resolved = batch.items[-1].claim_id
+    Finance(store).decide(resolved, DecisionInput.model_validate(decision(0, "refer")))
+    statements.clear()
+    queue.finish(batch.queue_run_id, "stopped")
+    assert len(statements) <= 6
+    saved = queue.current()
+    assert saved is not None
+    assert [item.claim_id for item in saved.items if item.status == "skipped"] == [
+        resolved
+    ]
 
 
 def restrict_queue(store, claim_ids):
