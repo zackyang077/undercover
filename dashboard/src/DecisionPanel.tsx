@@ -6,18 +6,13 @@ type Props = Readonly<{
   detail: ClaimDetail;
   handlers: Handler[];
   busy: boolean;
-  active: boolean;
   act: (action: () => Promise<unknown>) => Promise<void>;
 }>;
 
-function Payment({ detail, handlers, busy, active, act }: Props) {
+function Payment({ detail, handlers, busy, act }: Props) {
   const [handler, setHandler] = useState("");
-  const { decision, payment, sign_off: signed, claim } = detail;
+  const { payment, sign_off: signed, claim } = detail;
   const needsSignOff = detail.status === "waiting_sign_off";
-  const pay = () =>
-    api(`/claims/${claim.claim_id}/payment`, {
-      amount: decision?.payout_amount,
-    });
   return (
     <div className="payment">
       <p>
@@ -26,7 +21,14 @@ function Payment({ detail, handlers, busy, active, act }: Props) {
         </strong>
         {payment && ` · ${money(payment.amount)}`}
       </p>
-      {signed && <p className="muted">Signed off by {signed.handler_name}</p>}
+      {signed && (
+        <p className="muted">
+          Signed off by {signed.handler_name} ·{" "}
+          <time dateTime={signed.created_at}>
+            {new Date(signed.created_at).toLocaleString("en-US")}
+          </time>
+        </p>
+      )}
       {needsSignOff && (
         <>
           <p>
@@ -55,28 +57,16 @@ function Payment({ detail, handlers, busy, active, act }: Props) {
             className="primary"
             disabled={!handler || busy}
             onClick={() => {
-              void act(async () => {
-                await api(`/claims/${claim.claim_id}/sign-off`, {
+              void act(() =>
+                api(`/claims/${claim.claim_id}/sign-off`, {
                   handler_id: handler,
-                });
-                await pay();
-              });
+                }),
+              );
             }}
           >
-            Sign off and pay
+            Sign off
           </button>
         </>
-      )}
-      {!needsSignOff && !payment && (
-        <button
-          className="secondary"
-          disabled={busy || active}
-          onClick={() => {
-            void act(pay);
-          }}
-        >
-          Record payment
-        </button>
       )}
     </div>
   );

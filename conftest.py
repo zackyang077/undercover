@@ -17,3 +17,4 @@ for key in (
 @pytest.fixture(autouse=True)
 def isolated_claim_files(tmp_path, monkeypatch):
     monkeypatch.setenv("UNDERCOVER_DB", str(tmp_path / "claims.sqlite3"))
+    monkeypatch.setattr("backend.dispatch.notify", lambda path: None)

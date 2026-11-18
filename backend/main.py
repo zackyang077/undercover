@@ -5,11 +5,10 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, BackgroundTasks, FastAPI
 from pydantic import JsonValue
 
-from agent.main import run as run_agent
-from agent.queue import run_queue
+from backend import dispatch
 from backend.finance import Finance
 from backend.guidance import routes as guidance_routes
 from backend.payout import routes as payout_routes
@@ -26,12 +25,13 @@ from backend.schemas import (
     Wording,
 )
 from backend.storage import Store
+from backend.work import routes as work_routes
 
 
 def create_app(
     path: Path | str,
-    runner: Callable[[str, str], str] = run_agent,
-    queue_runner: Callable[[str, str], str] = run_queue,
+    runner: Callable[[str, str], str] | None = None,
+    queue_runner: Callable[[str, str], str] | None = None,
 ) -> FastAPI:
     """Create a backend with an isolated database location."""
     store = Store(path)
@@ -41,8 +41,9 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         store.initialize()
-        runs.recover()
-        queue.recover()
+        if runner is not None:
+            runs.recover()
+            queue.recover()
         yield
         await queue.close()
         await runs.close()
@@ -92,6 +93,7 @@ def create_app(
     application.include_router(guidance_routes(store))
     application.include_router(payout_routes(store))
     application.include_router(financial_routes(store))
+    application.include_router(work_routes(queue))
     application.include_router(routes(runs))
     application.include_router(queue_routes(queue))
     return application
@@ -107,9 +109,13 @@ def financial_routes(store: Store) -> APIRouter:
         return finance.decide(claim_id, decision)
 
     @router.post("/api/claims/{claim_id}/sign-off", operation_id="sign_off_claim")
-    def sign_off_claim(claim_id: str, request: SignOffInput) -> dict[str, JsonValue]:
+    def sign_off_claim(
+        claim_id: str, request: SignOffInput, background: BackgroundTasks
+    ) -> dict[str, JsonValue]:
         """Record handler sign-off on an approved claim."""
-        return finance.sign_off(claim_id, request)
+        saved = finance.sign_off(claim_id, request)
+        background.add_task(dispatch.notify, f"/claims/{claim_id}/resume")
+        return saved
 
     @router.post("/api/claims/{claim_id}/payment", operation_id="pay_claim")
     def pay_claim(claim_id: str, request: PaymentInput) -> ClaimDetail:

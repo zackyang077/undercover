@@ -4,10 +4,11 @@ import asyncio
 from collections.abc import Callable
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
+from backend import dispatch
 from backend.db import attempts, events
 from backend.db import runs as run_table
 from backend.finance import now
@@ -40,7 +41,7 @@ class Run(BaseModel):
 
 
 class Runs:
-    def __init__(self, store: Store, runner: Callable[[str, str], str]):
+    def __init__(self, store: Store, runner: Callable[[str, str], str] | None):
         self.store = store
         self.runner = runner
         self.tasks: set[asyncio.Task] = set()
@@ -199,6 +200,8 @@ class Runs:
     async def attempt(self, claim_id: str, thread_id: str) -> Run:
         error = ""
         try:
+            if self.runner is None:
+                raise RuntimeError("A local runner was not configured")
             await asyncio.to_thread(self.runner, claim_id, thread_id)
         except Exception as failure:
             error = self.error_text(failure)
@@ -237,10 +240,13 @@ def routes(runs: Runs) -> APIRouter:
     @router.post(
         "/api/claims/{claim_id}/runs", status_code=202, operation_id="start_claim_run"
     )
-    async def start_claim_run(claim_id: str) -> Run:
+    async def start_claim_run(claim_id: str, background: BackgroundTasks) -> Run:
         """Start the agent on one waiting claim."""
         run = runs.start(claim_id)
-        runs.launch(claim_id, run.thread_id)
+        if runs.runner is None:
+            background.add_task(dispatch.notify, "/wake")
+        else:
+            runs.launch(claim_id, run.thread_id)
         return run
 
     @router.get("/api/claims/{claim_id}/runs", operation_id="list_claim_runs")

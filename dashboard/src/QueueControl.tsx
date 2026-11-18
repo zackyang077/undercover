@@ -155,6 +155,35 @@ function startBody(scope: string, limit: string) {
   return { mode: "capped", max_claims: Number(limit) };
 }
 
+async function canResume(run: QueueRun | null) {
+  if (run?.status !== "stopped" && run?.status !== "interrupted") return false;
+  const check = await api<{ complete: boolean }>(
+    `/queue/runs/${run.queue_run_id}/check`,
+  );
+  return !check.complete;
+}
+
+function startOptions(
+  run: QueueRun | null,
+  waiting: number,
+  scope: string,
+  limit: string,
+) {
+  if (run)
+    return {
+      title: "Resume queue",
+      body: startBody(run.mode, String(run.target)),
+      enabled: true,
+    };
+  const planned =
+    scope === "all" ? waiting : Math.min(waiting, Number(limit) || 0);
+  return {
+    title: `Start queue (${String(planned)})`,
+    body: startBody(scope, limit),
+    enabled: waiting > 0 && validStart(scope, limit),
+  };
+}
+
 function todoLabel(status: Todo["status"]) {
   const labels = {
     pending: "To do",
@@ -174,6 +203,7 @@ export function QueueControl({
   const [scope, setScope] = useState("capped");
   const [limit, setLimit] = useState("5");
   const [run, setRun] = useState<QueueRun | null>(null);
+  const [resumable, setResumable] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -185,9 +215,10 @@ export function QueueControl({
     async function refresh() {
       try {
         const next = await api<QueueRun | null>("/queue/runs/current");
-        await onRefresh();
+        const [resume] = await Promise.all([canResume(next), onRefresh()]);
         if (cancelled) return;
         setRun(next);
+        setResumable(resume);
         setLoaded(true);
         setFetchError("");
         onRunningChange(next?.status === "running");
@@ -212,11 +243,10 @@ export function QueueControl({
     };
   }, [revision, onRefresh, onRunningChange]);
 
-  async function act(path: string) {
+  async function act(path: string, body: object) {
     setBusy(true);
     setError("");
     try {
-      const body = path === "/queue/runs" ? startBody(scope, limit) : {};
       const next = await api<QueueRun>(path, body);
       setRun(next);
       onRunningChange(next.status === "running");
@@ -228,11 +258,10 @@ export function QueueControl({
     }
   }
   const running = run?.status === "running";
-  const planned =
-    scope === "all" ? waiting : Math.min(waiting, Number(limit) || 0);
+  const start = startOptions(resumable ? run : null, waiting, scope, limit);
   return (
     <section className="panel queue-control" aria-label="Queue processing">
-      {!running && (
+      {!running && !resumable && (
         <RunOptions
           scope={scope}
           limit={limit}
@@ -254,7 +283,7 @@ export function QueueControl({
             className="secondary"
             disabled={busy || run.stop_requested}
             onClick={() => {
-              void act(`/queue/runs/${run.queue_run_id}/stop`);
+              void act(`/queue/runs/${run.queue_run_id}/stop`, {});
             }}
           >
             Stop after current claim
@@ -262,14 +291,12 @@ export function QueueControl({
         ) : (
           <button
             className="primary"
-            disabled={
-              !loaded || busy || waiting === 0 || !validStart(scope, limit)
-            }
+            disabled={!loaded || busy || !start.enabled}
             onClick={() => {
-              void act("/queue/runs");
+              void act("/queue/runs", start.body);
             }}
           >
-            Start queue ({planned})
+            {start.title}
           </button>
         )}
       </div>

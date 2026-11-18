@@ -1,5 +1,6 @@
 """Isolated browser acceptance server; never used by the normal app."""
 
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -10,6 +11,7 @@ from backend.main import create_app
 from backend.tests.queue_stub import scripted_queue
 
 TEMP = tempfile.TemporaryDirectory(prefix="undercover-browser-")
+os.environ["UNDERCOVER_DB"] = str(Path(TEMP.name) / "browser.sqlite3")
 ATTEMPTS: dict[str, int] = {}
 
 

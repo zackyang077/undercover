@@ -50,6 +50,8 @@ it("starts waiting claims with one action, displays progress, and stops after th
     "fetch",
     vi.fn((url: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/check"))
+        return Promise.resolve(Response.json({ complete: false }));
       if (url === "/api/queue/runs") saved = structuredClone(initial);
       if (url.endsWith("/stop") && saved)
         saved = { ...saved, stop_requested: true };
@@ -93,11 +95,38 @@ it("starts waiting claims with one action, displays progress, and stops after th
   };
   expect(await screen.findByText("Queue stopped")).toBeDefined();
   expect(screen.getByText("1 / 2 processed")).toBeDefined();
+  expect(screen.getByRole("button", { name: "Resume queue" })).toBeDefined();
+  expect(screen.queryByLabelText("Run scope")).toBeNull();
   expect(calls.filter((call) => call === "POST /api/queue/runs")).toHaveLength(
     1,
   );
   expect(calls.filter((call) => call.endsWith("/stop"))).toHaveLength(1);
   expect(running).toHaveBeenLastCalledWith(false);
+});
+
+it("offers a fresh scope when a stopped batch has already finished its work", async () => {
+  const saved = { ...initial, status: "stopped", stop_requested: true };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) =>
+      Promise.resolve(
+        Response.json(url.endsWith("/check") ? { complete: true } : saved),
+      ),
+    ),
+  );
+  render(
+    <QueueControl
+      waiting={1}
+      onRefresh={refresh}
+      onRunningChange={running}
+      onSelect={select}
+    />,
+  );
+  expect(await screen.findByText("Queue stopped")).toBeDefined();
+  expect(
+    screen.getByRole("button", { name: "Start queue (1)" }),
+  ).toHaveProperty("disabled", false);
+  expect(screen.queryByRole("button", { name: "Resume queue" })).toBeNull();
 });
 
 it("restores the latest progress and exposes failed and skipped claims", async () => {

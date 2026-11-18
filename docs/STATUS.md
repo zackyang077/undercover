@@ -188,3 +188,7 @@ Identical decision and full-payment requests return the existing claim. Conflict
 ## Durable claims · Phase 4
 
 The claim worker now uses a synchronous LangGraph. The queue retains create_agent. Real graph nodes and file checkpoints were exercised with a stub model, including process loss across financial commit boundaries, sign-off arriving early, repeated notification and call-budget exhaustion. The Python suite passed 123 tests. A held claim releases its queue slot for execution while retaining its thread, admission and decision.
+
+## Durable claims · Phase 5
+
+On macOS, npm run dev started the backend, agent and dashboard on ports 8000, 8002 and 5173 without .env. Chromium showed 25 Waiting claims. Startup uses Node and uv commands portable to Windows; a Windows host was not available for a runtime check. Python tests verified service/CLI requests, durable sign-off during downtime, concurrency and a five-claim interrupted batch. The UI now resumes an unfinished batch under its original cap. All 9 Playwright tests and 17 frontend tests passed, including the separate 8003 notification stand-in.

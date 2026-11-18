@@ -134,53 +134,51 @@ it("polls an active run and shows a paid decision without reload", async () => {
   expect(screen.queryByRole("button", { name: "Start agent" })).toBeNull();
 });
 
-it("records sign-off once and retries a failed payment", async () => {
-  let attempts = 0;
+it("signs once, then follows the agent payment across reopening the claim", async () => {
+  const signedAt = "2026-11-18T02:30:00Z";
   setup((path, init) => {
-    if (init?.method !== "POST") return undefined;
-    if (path.endsWith("/sign-off")) {
+    if (init?.method === "POST" && path.endsWith("/sign-off")) {
       detail.sign_off = {
         handler_id: "HND-01",
         handler_name: "Dana Whitfield",
-        created_at: "now",
+        created_at: signedAt,
       };
-      detail.status = "decided";
-      return Response.json(detail.sign_off);
+      detail.status = "in_progress";
+      return Response.json(detail);
     }
-    if (path.endsWith("/payment")) {
-      attempts++;
-      if (attempts === 1)
-        return Response.json(
-          { detail: "Payment temporarily failed" },
-          { status: 409 },
-        );
-      detail.payment = { amount: 1250, created_at: "now", simulated: true };
-      return Response.json(detail.payment);
-    }
-    return undefined;
   });
   detail.decision = { ...approved, payout_amount: 1250 };
   detail.status = "waiting_sign_off";
-  render(<App />);
-  const sign = await screen.findByRole("button", { name: "Sign off and pay" });
-  expect(screen.getByRole("heading", { name: "Claim approved" })).toBeDefined();
-  const result = screen.getByRole("region", { name: "Agent decision" });
-  expect(within(result).getByText("$1,250.00", { exact: true })).toBeDefined();
-  expect(within(result).getByText("Payment pending")).toBeDefined();
+  const { unmount } = render(<App />);
+  const sign = await screen.findByRole("button", { name: "Sign off" });
   expect(sign).toHaveProperty("disabled", true);
   fireEvent.change(screen.getByLabelText("Handler"), {
     target: { value: "HND-01" },
   });
   fireEvent.click(sign);
-  expect(await screen.findByRole("alert")).toHaveProperty(
-    "textContent",
-    "Payment temporarily failed",
-  );
-  expect(await screen.findByText("Signed off by Dana Whitfield")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "Record payment" }));
+  const signed = await screen.findByText(/Signed off by Dana Whitfield/);
+  expect(signed.querySelector("time")?.dateTime).toBe(signedAt);
+  expect(
+    screen.getByText("Payment pending", { selector: "strong" }),
+  ).toBeDefined();
+  expect(screen.queryByRole("button", { name: "Sign off" })).toBeNull();
+
+  unmount();
+  render(<App />);
+  expect(await screen.findByText(/Signed off by Dana Whitfield/)).toBeDefined();
+  expect(screen.getAllByText("In progress").length).toBeGreaterThan(0);
+  expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull();
+
+  detail.payment = {
+    amount: 1250,
+    created_at: "2026-11-18T02:30:02Z",
+    simulated: true,
+  };
+  detail.status = "decided";
   expect(await screen.findByText("Simulated payment recorded")).toBeDefined();
+  expect(screen.getByText("Paid (simulated)")).toBeDefined();
   expect(requests.filter((path) => path.endsWith("/sign-off"))).toHaveLength(1);
-  expect(attempts).toBe(2);
+  expect(requests.filter((path) => path.endsWith("/payment"))).toHaveLength(0);
 });
 
 it.each(["decline", "refer"] as const)(

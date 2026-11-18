@@ -75,13 +75,13 @@ test("scripted approval shows activity and records a separate payment", async ({
   await page.screenshot({ path: "e2e/test-results/pilot-approved-mobile.png" });
 });
 
-test("over-limit payment is blocked until handler sign-off", async ({
+test("sign-off reaches the agent service with the committed handler record", async ({
   page,
   request,
 }) => {
   await openClaim(page, "CLM-1003");
   await start(page);
-  const sign = page.getByRole("button", { name: "Sign off and pay" });
+  const sign = page.getByRole("button", { name: "Sign off", exact: true });
   await expect(sign).toBeVisible();
   await expect(sign).toBeDisabled();
   await page.screenshot({ path: "e2e/test-results/pilot-sign-off.png" });
@@ -89,18 +89,42 @@ test("over-limit payment is blocked until handler sign-off", async ({
     data: { amount: 3750 },
   });
   expect(blocked.status()).toBe(403);
+  const pagePayments: string[] = [];
+  page.on("request", (req) => {
+    if (req.method() === "POST" && req.url().endsWith("/payment")) {
+      pagePayments.push(req.url());
+    }
+  });
   await page.getByLabel("Handler").selectOption("HND-01");
   await sign.click();
-  await expect(page.getByText("Simulated payment recorded")).toBeVisible();
-  await expect(page.getByText("Signed off by Dana Whitfield")).toBeVisible();
-  const duplicate = await request.post("/api/claims/CLM-1003/payment", {
-    data: { amount: 3750 },
-  });
-  expect(duplicate.status()).toBe(200);
-  expect(await duplicate.json()).toMatchObject({
-    status: "decided",
-    payment: { amount: 3750, simulated: true },
-  });
+  const signed = page.getByText(/Signed off by Dana Whitfield/);
+  await expect(signed).toBeVisible();
+  const saved = await request.get("/api/claims/CLM-1003");
+  const detail = (await saved.json()) as { sign_off: { created_at: string } };
+  const signedAt = detail.sign_off.created_at;
+  await expect(signed.locator("time")).toHaveAttribute("datetime", signedAt);
+  await expect
+    .poll(async () => {
+      const observations = await request.get(
+        "http://127.0.0.1:8003/observations/CLM-1003",
+      );
+      return observations.json() as Promise<unknown>;
+    })
+    .toEqual([
+      {
+        status: "in_progress",
+        sign_off: {
+          handler_id: "HND-01",
+          handler_name: "Dana Whitfield",
+          created_at: signedAt,
+        },
+      },
+    ]);
+  await page.reload();
+  await expect(page.locator(".claim-heading")).toContainText("In progress");
+  await expect(signed.locator("time")).toHaveAttribute("datetime", signedAt);
+  await expect(sign).toHaveCount(0);
+  expect(pagePayments).toEqual([]);
 });
 
 for (const scenario of [
@@ -151,7 +175,7 @@ test("exact approval boundary is enforced", async ({ page, request }) => {
   await openClaim(page, "CLM-1008");
   await start(page);
   await expect(
-    page.getByRole("button", { name: "Sign off and pay" }),
+    page.getByRole("button", { name: "Sign off", exact: true }),
   ).toBeVisible();
   const blocked = await request.post("/api/claims/CLM-1008/payment", {
     data: { amount: 1000.01 },

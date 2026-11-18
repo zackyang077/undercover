@@ -6,9 +6,10 @@ from contextlib import contextmanager
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend import dispatch
 from backend.finance import now
 from backend.runs import Runs
 
@@ -355,10 +356,15 @@ def routes(queue: QueueRuns) -> APIRouter:
         return queue.current()
 
     @router.post("/api/queue/runs", status_code=202, operation_id="start_queue_run")
-    async def start_queue_run(request: QueueStart) -> QueueRun:
+    async def start_queue_run(
+        request: QueueStart, background: BackgroundTasks
+    ) -> QueueRun:
         """Start one sequential pass over the currently waiting claims."""
         run = queue.start(request)
-        queue.launch(run)
+        if queue.runner is None:
+            background.add_task(dispatch.notify, "/wake")
+        else:
+            queue.launch(run)
         return run
 
     @router.post("/api/queue/runs/{queue_run_id}/stop", operation_id="stop_queue_run")

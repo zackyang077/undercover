@@ -1,7 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 import type { ClaimSummary, QueueRun } from "../dashboard/src/types";
 
-test("one-click queue processing survives reload, stops safely, and continues after one failure", async ({
+async function currentQueue(request: APIRequestContext): Promise<QueueRun> {
+  const response = await request.get("/api/queue/runs/current");
+  return (await response.json()) as QueueRun;
+}
+
+test("resumes a stopped batch to its original cap before starting a fresh batch", async ({
   page,
   request,
 }) => {
@@ -52,12 +57,25 @@ test("one-click queue processing survives reload, stops safely, and continues af
     .click();
   await expect(control.getByText("Queue stopped")).toBeVisible();
   await expect(control.getByText("1 / 2 processed")).toBeVisible();
+  const stopped = await currentQueue(request);
   const blocked = await request.post("/api/claims/CLM-1009/payment", {
     data: { amount: 1250 },
   });
   expect(blocked.status()).toBe(403);
   await page.reload();
   await expect(control.getByText("Queue stopped")).toBeVisible();
+  await expect(page.getByLabel("Run scope")).toHaveCount(0);
+  await control.getByRole("button", { name: "Resume queue" }).click();
+  await expect(control.getByText("2 / 2 processed")).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(control.getByText("Queue completed")).toBeVisible();
+  const resumed = await currentQueue(request);
+  expect(resumed.queue_run_id).toBe(stopped.queue_run_id);
+  expect(resumed.admitted).toEqual(["CLM-1009", "CLM-1010"]);
+  expect(resumed.items[0].thread_id).toBe(stopped.items[0].thread_id);
+  const firstAttempts = await request.get("/api/claims/CLM-1009/runs");
+  expect(await firstAttempts.json()).toHaveLength(1);
   await page.getByLabel("Claim limit").fill("3");
   await control.getByRole("button", { name: "Start queue (3)" }).click();
   await expect(control.getByText("Queue completed")).toBeVisible({
@@ -70,14 +88,13 @@ test("one-click queue processing survives reload, stops safely, and continues af
   await expect(control.getByText(/provider failure/)).toBeVisible();
   await control.getByRole("button", { name: "CLM-1012", exact: true }).click();
   await expect(page.locator(".claim-heading")).toContainText("CLM-1012");
-  const currentResponse = await request.get("/api/queue/runs/current");
-  const latestBody: unknown = await currentResponse.json();
-  const latest = latestBody as QueueRun;
+  const latest = await currentQueue(request);
+  expect(latest.queue_run_id).not.toBe(stopped.queue_run_id);
+  expect(latest.admitted).toEqual(["CLM-1011", "CLM-1012", "CLM-1013"]);
   expect(latest.items.map((item) => item.status)).toEqual([
     "completed",
-    "completed",
     "failed",
-    "pending",
+    "completed",
     "pending",
   ]);
   const claimResponse = await request.get("/api/claims/CLM-1011");
@@ -96,12 +113,12 @@ test("one-click queue processing survives reload, stops safely, and continues af
   await expect(
     page.getByText(/Left for a handler after two unsuccessful attempts/),
   ).toBeVisible();
-  const untouched = await request.get("/api/claims/CLM-1013");
+  const untouched = await request.get("/api/claims/CLM-1014");
   expect(await untouched.json()).toMatchObject({
     status: "waiting",
     decision: null,
   });
-  await control.getByRole("button", { name: "Start queue (2)" }).waitFor();
+  await control.getByRole("button", { name: "Start queue (1)" }).waitFor();
   await page.screenshot({
     path: "e2e/test-results/queue-completed.png",
     fullPage: true,

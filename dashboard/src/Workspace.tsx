@@ -47,6 +47,7 @@ export function Workspace({
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    let polling = queueRunning;
     let timer: ReturnType<typeof setTimeout>;
     async function refresh() {
       try {
@@ -59,7 +60,11 @@ export function Workspace({
         setDetail(next);
         setRuns(activity);
         setFetchError("");
-        if (activity.some((run) => run.status === "running") || queueRunning) {
+        polling =
+          queueRunning ||
+          next.status === "in_progress" ||
+          activity.some((run) => run.status === "running");
+        if (polling) {
           timer = setTimeout(() => {
             void refresh();
           }, 350);
@@ -67,7 +72,7 @@ export function Workspace({
       } catch (failure) {
         if (!cancelled) {
           setFetchError(message(failure));
-          if (queueRunning)
+          if (polling)
             timer = setTimeout(() => {
               void refresh();
             }, 1500);
@@ -155,7 +160,6 @@ export function Workspace({
         detail={detail}
         handlers={handlers}
         busy={busy}
-        active={active}
         act={act}
       />
       <div className="work-grid">
