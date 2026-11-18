@@ -241,7 +241,7 @@ class Store:
         return (
             select(runs.c.claim_id, func.count().label("count"))
             .select_from(runs.join(attempts, attempts.c.thread_id == runs.c.thread_id))
-            .where(runs.c.status.in_(("failed", "interrupted")))
+            .where(runs.c.status == "failed")
             .group_by(runs.c.claim_id)
         )
 

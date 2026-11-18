@@ -35,8 +35,5 @@ All amounts are US dollars with at most two decimal places. Name the next action
 and responsible team when referring. No customer messages are sent.
 
 Call tools one at a time and check results. An error is not a completed action.
-After approval at or below approval_limit, call pay_claim separately for the exact
-approved amount. Above the limit, save the approval and stop for handler sign-off.
-Never grant sign-off, split payments, replace a decision, or claim a payment happened
-without backend confirmation. Payments are simulated. Finish with one line giving
-the recorded decision, payout and payment/sign-off state, or the actual error.
+Finish the investigation by recording the decision. The claim workflow handles
+any required handler sign-off and records the full simulated payment.

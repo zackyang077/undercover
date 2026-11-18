@@ -10,8 +10,7 @@ from sqlalchemy import select
 
 from backend.db import attempts, events
 from backend.db import runs as run_table
-from backend.finance import Finance, now
-from backend.schemas import PaymentInput
+from backend.finance import now
 from backend.storage import MAX_ATTEMPTS, Store
 
 
@@ -82,15 +81,25 @@ class Runs:
             ]
 
     def begin(self, connection, claim_id: str) -> str:
-        active = connection.scalar(
-            select(run_table.c.thread_id).where(
-                run_table.c.claim_id == claim_id, run_table.c.status == "running"
-            )
-        )
-        if active or self.store.find(connection, "decisions", claim_id):
+        latest = connection.execute(
+            select(run_table.c.thread_id, run_table.c.status)
+            .where(run_table.c.claim_id == claim_id)
+            .order_by(run_table.c.started_at.desc())
+            .limit(1)
+        ).first()
+        if (latest and latest.status == "running") or self.store.find(
+            connection, "decisions", claim_id
+        ):
             raise HTTPException(
                 409, "Claim already has active work or a final decision"
             )
+        if latest and latest.status == "interrupted":
+            connection.execute(
+                run_table.update()
+                .where(run_table.c.thread_id == latest.thread_id)
+                .values(status="running", finished_at="", error="")
+            )
+            return latest.thread_id
         if self.store.failure_count(connection, claim_id) >= MAX_ATTEMPTS:
             raise HTTPException(409, "Claim is left for a handler after two failures")
         thread_id = str(uuid4())
@@ -161,33 +170,30 @@ class Runs:
                     thread_id=thread_id,
                     kind=status,
                     tool_name="",
-                    text=error or "Agent run completed",
+                    text=error
+                    or (
+                        "Waiting for handler sign-off"
+                        if status == "paused"
+                        else "Agent run completed"
+                    ),
                     created_at=now(),
                 )
             )
 
     def conclude(self, claim_id: str, thread_id: str, error: str) -> Run:
-        detail = self.store.detail(claim_id)
-        if detail.decision:
-            error = ""
-            if (
-                detail.decision["outcome"] == "approve"
-                and detail.status != "waiting_sign_off"
-                and not detail.payment
-            ):
-                try:
-                    Finance(self.store).pay(
-                        claim_id,
-                        PaymentInput.model_validate(
-                            {"amount": detail.decision["payout_amount"]}
-                        ),
-                    )
-                except HTTPException:
-                    if not self.store.detail(claim_id).payment:
-                        error = "Decision recorded; payment needs handler review"
-        else:
-            error = error or "The helper finished without a recorded decision"
-        self.finish(thread_id, "failed" if error else "completed", error)
+        with self.store.connection(write=True):
+            detail = self.store.detail(claim_id)
+            if not detail.decision:
+                status = "failed"
+                error = error or "The helper finished without a recorded decision"
+            elif detail.status == "waiting_sign_off":
+                status, error = "paused", ""
+            elif detail.decision["outcome"] == "approve" and not detail.payment:
+                status = "interrupted"
+                error = error or "Decision saved; payment pending on this thread"
+            else:
+                status, error = "completed", ""
+            self.finish(thread_id, status, error)
         return next(r for r in self.list(claim_id) if r.thread_id == thread_id)
 
     async def attempt(self, claim_id: str, thread_id: str) -> Run:

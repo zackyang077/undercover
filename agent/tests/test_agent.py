@@ -8,9 +8,8 @@ from fastapi.testclient import TestClient
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, ToolMessage
-from langgraph.errors import GraphRecursionError
 
-from agent import main, tracing
+from agent import claim_graph, main, tracing
 from backend.main import create_app
 from backend.tests.test_finance import decision
 
@@ -26,37 +25,33 @@ def call(name, args):
     return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": name}])
 
 
-def replies(amount: float = 420, outcome: str = "approve", attempt_payment=True):
-    messages = [
+def replies(amount: float = 420, outcome: str = "approve"):
+    return [
         call("read_claim", {}),
         call("read_guidance_section", {"document": "wording", "section_id": "3"}),
         call("read_guidance_section", {"document": "manual", "section_id": "4"}),
         call("record_decision", decision(amount, outcome)),
     ]
-    if outcome == "approve" and attempt_payment:
-        messages.append(call("pay_claim", {"amount": amount}))
-    messages.append(AIMessage(content="Decision recorded."))
-    return messages
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNDERCOVER_DB", str(tmp_path / "agent.sqlite3"))
     with TestClient(create_app(tmp_path / "agent.sqlite3")) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         yield client
 
 
 @pytest.mark.parametrize(
-    ("amount", "outcome", "pay"),
+    ("amount", "outcome"),
     [
-        (420, "approve", True),
-        (0, "decline", False),
-        (0, "refer", False),
-        (1250, "approve", False),
-        (1250, "approve", True),
+        (420, "approve"),
+        (0, "decline"),
+        (0, "refer"),
+        (1250, "approve"),
     ],
 )
-def test_agent_paths(client, monkeypatch, amount, outcome, pay):
+def test_agent_paths(client, monkeypatch, amount, outcome):
     seen = []
     original = GenericFakeChatModel._generate
 
@@ -65,8 +60,11 @@ def test_agent_paths(client, monkeypatch, amount, outcome, pay):
         return original(model, messages, **kwargs)
 
     monkeypatch.setattr(StubModel, "_generate", capture)
-    stub = StubModel(messages=iter(replies(amount, outcome, pay)))
-    assert main.run("CLM-1001", "thread-1", stub) == "Decision recorded."
+    stub = StubModel(messages=iter(replies(amount, outcome)))
+    result = main.run("CLM-1001", "thread-1", stub)
+    assert result == (
+        "Waiting for sign-off" if amount > 1000 else f"{outcome}: ${amount:.2f}"
+    )
     detail = client.get("/api/claims/CLM-1001").json()
     assert detail["decision"]["outcome"] == outcome
     assert bool(detail["payment"]) == (outcome == "approve" and amount <= 1000)
@@ -74,7 +72,7 @@ def test_agent_paths(client, monkeypatch, amount, outcome, pay):
     assert "Maya Patel" in combined
     assert "Trip Delay" in combined
     assert "Working a claim" in combined
-    assert "UnderCover Agent" in combined
+    assert "UnderCover claim helper" in combined
     assert "previous_claims" in combined
 
 
@@ -87,18 +85,15 @@ def test_bound_tools_and_failures(client):
         "read_guidance_section",
         "work_out_payout",
         "record_decision",
-        "pay_claim",
     }
     assert "claim_id" not in tools["record_decision"].args
     assert "claim_id" not in tools["work_out_payout"].args
     assert tools["record_decision"].invoke(decision(0))["status_code"] == 422
-    assert tools["pay_claim"].invoke({"amount": 1})["status_code"] == 409
     stub = StubModel(messages=iter([AIMessage(content="I am done.")]))
     with pytest.raises(RuntimeError, match="without a recorded decision"):
         main.run("CLM-1001", "thread-1", stub)
-    unpaid = StubModel(messages=iter(replies(attempt_payment=False)))
-    with pytest.raises(RuntimeError, match="still unpaid"):
-        main.run("CLM-1001", "thread-2", unpaid)
+    main.run("CLM-1001", "thread-2", StubModel(messages=iter(replies())))
+    assert client.get("/api/claims/CLM-1001").json()["payment"]["amount"] == 420
 
 
 def test_model_uses_payout_result(client, monkeypatch):
@@ -122,8 +117,6 @@ def test_model_uses_payout_result(client, monkeypatch):
     messages = [
         call("work_out_payout", payload),
         call("record_decision", saved),
-        call("pay_claim", {"amount": 420}),
-        AIMessage(content="Paid."),
     ]
     main.run("CLM-1001", "calculation", StubModel(messages=iter(messages)))
     assert captured[0]["payout"] == 420
@@ -142,10 +135,13 @@ def test_claim_calls_trace_into_attempt_sessions(client, monkeypatch):
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "test-public")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "test-secret")
     monkeypatch.setattr(tracing, "CallbackHandler", Recorder)
-    for thread in ["first", "first", "next"]:
-        stub = StubModel(messages=iter([AIMessage(content="Done.")]))
-        with pytest.raises(RuntimeError, match="without a recorded decision"):
-            main.run("CLM-1001", thread, stub)
+    stub = StubModel(messages=iter(replies(1250)))
+    main.run("CLM-1001", "first", stub)
+    client.post(
+        "/api/claims/CLM-1001/sign-off", json={"handler_id": "HND-01"}
+    ).raise_for_status()
+    main.run("CLM-1001", "first", stub)
+    main.run("CLM-1001", "next", stub)
     assert sessions == ["CLM-1001/first", "CLM-1001/first", "CLM-1001/next"]
     monkeypatch.delenv("LANGFUSE_SECRET_KEY")
     assert "callbacks" not in tracing.claim_config("CLM-1001", "next")
@@ -165,9 +161,9 @@ def test_recursion_limit_and_no_file_access(client, monkeypatch):
 
     monkeypatch.setattr(main, "request", request)
     monkeypatch.setattr(Path, "read_text", no_files)
-    monkeypatch.setattr(main, "MAX_STEPS", 4)
+    monkeypatch.setattr(claim_graph, "MAX_MODEL_CALLS", 4)
     stub = StubModel(messages=iter([call("read_claim", {}) for _ in range(10)]))
-    with pytest.raises(GraphRecursionError):
+    with pytest.raises(RuntimeError, match="limit of 4 model calls"):
         main.run("CLM-1001", "thread-1", stub)
 
 
@@ -204,24 +200,6 @@ def test_section_tools_and_activity(client):
     client.app.state.runs.finish(thread, "completed", "")
 
 
-def test_lost_payment_response_reconciles(client, monkeypatch):
-    client.post("/api/claims/CLM-1001/decision", json=decision())
-    original = main.request
-
-    def lost(method, path, body=None):
-        saved = original(method, path, body)
-        if method == "POST" and path.endswith("/payment"):
-            raise httpx.ReadTimeout("Response lost")
-        return saved
-
-    monkeypatch.setattr(main, "request", lost)
-    tools = {t.name: t for t in main.tools_for("CLM-1001")}
-    assert (
-        tools["pay_claim"].invoke({"amount": 420})["payment"]["amount_cents"] == 42000
-    )
-    assert client.get("/api/claims/CLM-1001").json()["payment"]["amount"] == 420
-
-
 @pytest.mark.parametrize(
     ("section", "story", "amount", "outcome"),
     [
@@ -249,9 +227,6 @@ def test_synthetic_manual_tool_flows(client, section, story, amount, outcome):
         call("read_guidance_section", {"document": "manual", "section_id": section}),
         call("record_decision", payload),
     ]
-    if amount:
-        messages.append(call("pay_claim", {"amount": amount}))
-    messages.append(AIMessage(content="Synthetic case recorded."))
     main.run("CLM-1001", "synthetic", StubModel(messages=iter(messages)))
     saved = client.get("/api/claims/CLM-1001").json()["decision"]
     assert saved["manual_references"] == [section]
@@ -259,20 +234,163 @@ def test_synthetic_manual_tool_flows(client, section, story, amount, outcome):
     assert saved["payout_amount"] == amount
 
 
-def test_lost_decision_response_reconciles(client, monkeypatch):
+def test_signed_claim_resumes_once_with_same_thread(client):
+    thread = client.app.state.runs.start("CLM-1001").thread_id
+    actor = StubModel(messages=iter(replies(1250)))
+    assert main.run("CLM-1001", thread, actor) == "Waiting for sign-off"
+    assert main.run("CLM-1001", thread, actor) == "Waiting for sign-off"
+    claim = "/api/claims/CLM-1001"
+    assert client.get(claim).json()["payment"] is None
+    client.post(f"{claim}/sign-off", json={"handler_id": "HND-01"}).raise_for_status()
+    no_more_model_calls = StubModel(messages=iter([]))
+    assert main.run("CLM-1001", thread, no_more_model_calls) == "approve: $1250.00"
+    paid = client.get(claim).json()["payment"]
+    main.run("CLM-1001", thread, no_more_model_calls)
+    assert client.get(claim).json()["payment"] == paid
+    assert len(client.app.state.runs.list("CLM-1001")) == 1
+
+
+@pytest.mark.parametrize("step", ["decision", "payment"])
+def test_crash_after_mutation_replays_checkpoint(client, monkeypatch, step):
+    thread = client.app.state.runs.start("CLM-1001").thread_id
+    path = "/api/claims/CLM-1001"
     original = main.request
 
-    def lost(method, path, body=None):
-        saved = original(method, path, body)
-        if method == "POST" and path.endswith("/decision"):
-            raise httpx.ReadTimeout("Response lost after saving")
-        return saved
+    def crash(method, url, body=None):
+        result = original(method, url, body)
+        if method == "POST" and url == f"{path}/{step}":
+            raise SystemExit("Worker was killed")
+        return result
 
-    monkeypatch.setattr(main, "request", lost)
-    tools = {t.name: t for t in main.tools_for("CLM-1001")}
+    with monkeypatch.context() as patch:
+        patch.setattr(main, "request", crash)
+        with pytest.raises(SystemExit, match="Worker was killed"):
+            main.run("CLM-1001", thread, StubModel(messages=iter(replies())))
+    before = client.get(path).json()
+    assert before[step]
     assert (
-        tools["record_decision"].invoke(decision())["decision"]["payout_amount"] == 420
+        main.run("CLM-1001", thread, StubModel(messages=iter([]))) == "approve: $420.00"
     )
-    assert (
-        client.get("/api/claims/CLM-1001").json()["decision"]["payout_cents"] == 42000
+    after = client.get(path).json()
+    assert after[step] == before[step]
+    assert after["payment"]["amount"] == 420
+    assert len(client.app.state.runs.list("CLM-1001")) == 1
+
+
+def test_existing_approval_can_resume_without_a_checkpoint(client):
+    path = "/api/claims/CLM-1001"
+    client.post(f"{path}/decision", json=decision(1500)).raise_for_status()
+    main.run("CLM-1001", "historical", StubModel(messages=iter([])))
+    assert client.get(path).json()["payment"] is None
+    client.post(f"{path}/sign-off", json={"handler_id": "HND-01"}).raise_for_status()
+    main.run("CLM-1001", "historical", StubModel(messages=iter([])))
+    assert client.get(path).json()["payment"]["amount"] == 1500
+
+
+def test_graph_replays_payment_after_lost_http_response(client, monkeypatch):
+    path = "/api/claims/CLM-1001"
+    request = main.request
+    payments = []
+
+    def lose_first_response(method, url, body=None):
+        result = request(method, url, body)
+        if method == "POST" and url == f"{path}/payment":
+            payments.append(result["payment"])
+            if len(payments) == 1:
+                raise httpx.ReadTimeout("Response lost after payment commit")
+        return result
+
+    monkeypatch.setattr(main, "request", lose_first_response)
+    main.run("CLM-1001", "lost-response", StubModel(messages=iter(replies())))
+    saved = client.get(path).json()["payment"]
+    assert payments == [saved, saved]
+
+
+def test_transient_retry_counts_against_budget(client, monkeypatch):
+    calls = []
+    generate = StubModel._generate
+
+    def flaky(model, messages, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            raise httpx.ConnectError("Temporary failure")
+        return generate(model, messages, **kwargs)
+
+    monkeypatch.setattr(StubModel, "_generate", flaky)
+    monkeypatch.setattr(claim_graph, "RETRY_DELAY", 0)
+    stub = StubModel(messages=iter(call("read_claim", {}) for _ in range(31)))
+    with pytest.raises(RuntimeError, match="limit of 30 model calls"):
+        main.run("CLM-1001", "capped", stub)
+    assert len(calls) == 30
+    assert client.get("/api/claims/CLM-1001").json()["decision"] is None
+
+
+def test_tool_refusal_returns_to_model(client, monkeypatch):
+    refused = []
+    generate = StubModel._generate
+
+    def inspect(model, messages, **kwargs):
+        if isinstance(messages[-1], ToolMessage):
+            refused.append(json.loads(messages[-1].text))
+        return generate(model, messages, **kwargs)
+
+    monkeypatch.setattr(StubModel, "_generate", inspect)
+    sequence = [
+        call("pay_claim", {"amount": 42}),
+        call("record_decision", decision(0)),
+        call("record_decision", decision(42)),
+    ]
+    main.run("CLM-1001", "refusals", StubModel(messages=iter(sequence)))
+    assert "Unknown claim tool" in refused[0]["error"]
+    assert refused[1]["status_code"] == 422
+    assert client.get("/api/claims/CLM-1001").json()["payment"]["amount"] == 42
+
+
+def test_signoff_committed_while_decision_is_returning(client, monkeypatch):
+    path = "/api/claims/CLM-1001"
+    request = main.request
+
+    def fast_handler(method, url, body=None):
+        result = request(method, url, body)
+        if url == f"{path}/decision" and method == "POST":
+            # The decision response still reports waiting while sign-off commits.
+            assert result["status"] == "waiting_sign_off"
+            request("POST", f"{path}/sign-off", {"handler_id": "HND-01"})
+        return result
+
+    monkeypatch.setattr(main, "request", fast_handler)
+    result = main.run("CLM-1001", "race", StubModel(messages=iter(replies(1500))))
+    assert result == "approve: $1500.00"
+    assert client.get(path).json()["payment"]["amount"] == 1500
+
+
+def test_restart_keeps_investigation_and_model_call_budget(client, monkeypatch):
+    claim = "CLM-1001"
+    thread = client.app.state.runs.start(claim).thread_id
+    with monkeypatch.context() as patch:
+        generate = StubModel._generate
+
+        def stop_on_second_call(model, messages, **kwargs):
+            if isinstance(messages[-1], ToolMessage):
+                raise SystemExit("Process stopped during model call")
+            return generate(model, messages, **kwargs)
+
+        patch.setattr(StubModel, "_generate", stop_on_second_call)
+        with pytest.raises(SystemExit, match="Process stopped"):
+            main.run(claim, thread, StubModel(messages=iter([call("read_claim", {})])))
+
+    result = main.run(
+        claim, thread, StubModel(messages=iter([call("record_decision", decision())]))
     )
+    assert result == "approve: $420.00"
+    (run,) = client.get(f"/api/claims/{claim}/runs").json()
+    assert [
+        event["tool_name"] for event in run["events"] if event["kind"] == "tool_started"
+    ] == ["read_claim", "record_decision"]
+    assert [
+        event["text"] for event in run["events"] if event["tool_name"] == "model"
+    ] == [
+        "Reviewing claim (model call 1)",
+        "Reviewing claim (model call 2)",
+        "Reviewing claim (model call 3)",
+    ]

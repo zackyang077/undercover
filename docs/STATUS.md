@@ -184,3 +184,7 @@ SQLAlchemy Core now serves both databases. Queue and detail reads take at most t
 ## Durable claims · Phase 3
 
 Identical decision and full-payment requests return the existing claim. Conflicting decisions and incorrect amounts are refused. A signed, unpaid approval is In progress; its payment carries the handler and original sign-off timestamp. The complete Python suite passed 117 tests including concurrent replay and lost responses.
+
+## Durable claims · Phase 4
+
+The claim worker now uses a synchronous LangGraph. The queue retains create_agent. Real graph nodes and file checkpoints were exercised with a stub model, including process loss across financial commit boundaries, sign-off arriving early, repeated notification and call-budget exhaustion. The Python suite passed 123 tests. A held claim releases its queue slot for execution while retaining its thread, admission and decision.

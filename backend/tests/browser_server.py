@@ -31,7 +31,7 @@ def scripted_run(claim_id: str, thread_id: str) -> str:
         "CLM-1010": (0, "refer"),
     }
     amount, outcome = scenarios.get(claim_id, (420, "approve"))
-    messages = replies(amount, outcome, attempt_payment=amount <= 1000)
+    messages = replies(amount, outcome)
     return run(claim_id, thread_id, StubModel(messages=iter(messages)))
 
 

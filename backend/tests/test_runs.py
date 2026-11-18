@@ -3,7 +3,6 @@ import time
 from contextlib import nullcontext
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from agent import main
@@ -11,7 +10,7 @@ from agent.tests.test_agent import StubModel, replies
 from backend.finance import Finance
 from backend.main import create_app
 from backend.runs import Runs
-from backend.schemas import DecisionInput
+from backend.schemas import DecisionInput, PaymentInput
 from backend.storage import Store
 from backend.tests.test_finance import decision
 
@@ -37,9 +36,10 @@ def test_background_activity(tmp_path, monkeypatch, amount):
         events = client.get("/api/claims/CLM-1001/runs").json()[0]["events"]
         assert events[0]["kind"] == "started"
         release.set()
-        wait_for_run(client, "completed")
+        status = "paused" if amount > 1000 else "completed"
+        wait_for_run(client, status)
         run = client.get("/api/claims/CLM-1001/runs").json()[0]
-        assert run["events"][-1]["kind"] == "completed"
+        assert run["events"][-1]["kind"] == status
         assert "read_guidance_section" in {e["tool_name"] for e in run["events"]}
         assert client.post("/api/claims/CLM-1001/runs").status_code == 409
         assert (
@@ -50,9 +50,7 @@ def test_background_activity(tmp_path, monkeypatch, amount):
             == 409
         )
     with TestClient(app) as client:
-        assert (
-            client.get("/api/claims/CLM-1001/runs").json()[0]["status"] == "completed"
-        )
+        assert client.get("/api/claims/CLM-1001/runs").json()[0]["status"] == status
 
 
 def wait_for_run(client, status):
@@ -104,25 +102,25 @@ def test_restart_interruption(tmp_path):
     store.initialize()
     runs = Runs(store, lambda c, t: "")
     previous = runs.start("CLM-1001")
-    with TestClient(create_app(path)) as client:
+    with TestClient(create_app(path, lambda c, t: "")) as client:
         saved = client.get("/api/claims/CLM-1001/runs").json()[0]
         assert saved["status"] == "interrupted"
         assert saved["events"][-1]["kind"] == "interrupted"
         assert client.get("/api/claims").json()[0]["status"] == "waiting"
-        assert previous.thread_id != runs.start("CLM-1001").thread_id
+        assert store.failures("CLM-1001") == 0
+        assert previous.thread_id == runs.start("CLM-1001").thread_id
+        assert len(runs.list("CLM-1001")) == 1
 
 
-def test_decision_survives_failure(tmp_path, monkeypatch):
+def test_committed_payment_survives_response_loss(tmp_path):
     def runner(claim_id, thread_id):
-        return main.run(
-            claim_id,
-            thread_id,
-            StubModel(messages=iter(replies(attempt_payment=False))),
-        )
+        finance = Finance(app.state.store)
+        finance.decide(claim_id, DecisionInput.model_validate(decision()))
+        finance.pay(claim_id, PaymentInput.model_validate({"amount": 420}))
+        raise RuntimeError("Payment response lost")
 
-    app = create_app(tmp_path / "unpaid.sqlite3", runner)
+    app = create_app(tmp_path / "paid.sqlite3", runner)
     with TestClient(app) as client:
-        monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         client.post("/api/claims/CLM-1001/runs")
         wait_for_run(client, "completed")
         detail = client.get("/api/claims/CLM-1001").json()
@@ -148,9 +146,7 @@ def test_agent_deadline_and_inactive_logging(tmp_path, monkeypatch):
             main.emit(run.thread_id, "tool_started", "read_claim", "Read")
 
 
-def test_payment_reconciliation_preserves_decision_and_releases_lock(
-    tmp_path, monkeypatch
-):
+def test_unfinished_payment_preserves_thread_and_budget(tmp_path):
     app = create_app(tmp_path / "payment-failure.sqlite3")
     with TestClient(app):
         runs = app.state.runs
@@ -158,13 +154,11 @@ def test_payment_reconciliation_preserves_decision_and_releases_lock(
         Finance(app.state.store).decide(
             "CLM-1001", DecisionInput.model_validate(decision())
         )
-
-        def blocked(*args):
-            raise HTTPException(409, "Payment unavailable")
-
-        monkeypatch.setattr(Finance, "pay", blocked)
         result = runs.conclude("CLM-1001", started.thread_id, "Response lost")
-        assert result.status == "failed"
-        assert "payment needs handler" in result.error
-        assert app.state.queue.task_status("CLM-1001") == "needs_handler"
-        assert app.state.store.detail("CLM-1001").decision is not None
+        assert result.status == "interrupted"
+        assert app.state.store.failures("CLM-1001") == 0
+        assert result.thread_id == started.thread_id
+        assert app.state.queue.task_status("CLM-1001") == "in_progress"
+        detail = app.state.store.detail("CLM-1001")
+        assert detail.decision is not None
+        assert detail.payment is None

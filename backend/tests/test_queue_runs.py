@@ -129,6 +129,13 @@ def test_stop_and_shutdown_wait_for_the_active_helper(tmp_path, monkeypatch):
         assert saved["items"][0]["status"] == "completed"
         assert all(i["status"] == "pending" for i in saved["items"][1:])
         assert client.post("/api/queue/runs/missing/stop").status_code == 404
+        # A different request cap must not replace the unfinished batch.
+        resumed = app.state.queue.start(CappedClaims(mode="capped", max_claims=1))
+        assert resumed.queue_run_id == created["queue_run_id"]
+        assert resumed.thread_id == created["thread_id"]
+        assert resumed.target == 25
+        assert resumed.admitted == ["CLM-1001"]
+        assert not resumed.stop_requested
 
 
 def test_completion_guard_corrects_missed_claim_and_rejects_false_finish(
@@ -178,10 +185,10 @@ def test_empty_restart_and_unconfigured_queue(tmp_path):
     queue = QueueRuns(runs)
     batch = queue.start(CappedClaims(mode="capped", max_claims=1))
     queue.admit(batch.queue_run_id, "CLM-1002")
-    with TestClient(create_app(store.path)) as client:
+    with TestClient(create_app(store.path, lambda c, t: "")) as client:
         assert client.get(CURRENT).json()["status"] == "interrupted"
         assert client.get("/api/claims/CLM-1002").json()["status"] == "waiting"
-        assert store.failures("CLM-1002") == 1
+        assert store.failures("CLM-1002") == 0
         restrict_queue(store, set())
         assert client.post("/api/queue/runs", json={"mode": "all"}).status_code == 409
         with pytest.raises(HTTPException):

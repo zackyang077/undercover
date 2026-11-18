@@ -114,6 +114,14 @@ class QueueRuns:
             current = self.store.find(connection, "queue_runs", "current")
             if current and current["status"] == "running":
                 raise HTTPException(409, "The queue is already running")
+            if current and current["status"] in {"stopped", "interrupted"}:
+                run = QueueRun.model_validate(current)
+                if not self.check(run.queue_run_id)["complete"]:
+                    run.status = "running"
+                    run.stop_requested = False
+                    run.finished_at = run.error = run.summary = ""
+                    self.save(connection, run)
+                    return run
             items = [
                 QueueItem(claim_id=c.claim_id, summary=c.summary)
                 for c in self.store.queue()
@@ -167,15 +175,14 @@ class QueueRuns:
 
     def task_status(self, claim_id: str) -> TodoStatus:
         detail = self.store.detail(claim_id)
-        if any(r.status == "running" for r in self.runs.list(claim_id)):
+        if detail.status == "in_progress":
             return "in_progress"
         if detail.status in {"needs_handler", "waiting_sign_off"}:
             return "needs_handler"
         if detail.decision:
-            handler = detail.decision["outcome"] == "refer" or (
-                detail.decision["outcome"] == "approve" and not detail.payment
-            )
-            return "needs_handler" if handler else "done"
+            if detail.decision["outcome"] == "approve" and not detail.payment:
+                return "in_progress"
+            return "needs_handler" if detail.decision["outcome"] == "refer" else "done"
         return "pending"
 
     def write_todos(self, queue_run_id: str, request: Todos) -> QueueRun:
@@ -207,7 +214,14 @@ class QueueRuns:
         result = self.runs.conclude(item.claim_id, thread_id, error)
         with self.editing(queue_run_id) as batch:
             item = next(i for i in batch.items if i.thread_id == thread_id)
-            item.status = "completed" if result.status == "completed" else "failed"
+            if result.status == "interrupted":
+                item.status = "pending"
+            else:
+                item.status = (
+                    "completed"
+                    if result.status in {"completed", "paused"}
+                    else "failed"
+                )
             item.error = result.error
             for task in batch.todos:
                 if task.claim_id == item.claim_id:
@@ -294,8 +308,8 @@ class QueueRuns:
                 )
                 for item in run.items:
                     if item.status == "running":
-                        item.status = "failed"
-                        item.error = "Run interrupted by backend restart"
+                        item.status = "pending"
+                        item.error = ""
                 for task in run.todos:
                     task.status = self.task_status(task.claim_id)
 

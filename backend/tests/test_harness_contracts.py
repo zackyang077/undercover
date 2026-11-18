@@ -27,10 +27,11 @@ def test_cap_locks_todos_and_restart(tmp_path):
         queue.admit(batch.queue_run_id, "CLM-1004")
     assert error.value.status_code == 409
     runs.finish(admitted["thread_id"], "failed", "First failure")
-    with TestClient(create_app(path)) as client:
+    with TestClient(create_app(path, lambda c, t: "")) as client:
         assert client.get("/api/claims/CLM-1003").json()["status"] == "waiting"
         assert client.get("/api/queue/runs/current").json()["status"] == "interrupted"
     next_batch = queue.start(CappedClaims(mode="capped", max_claims=1))
+    assert next_batch.queue_run_id == batch.queue_run_id
     retry = queue.admit(next_batch.queue_run_id, "CLM-1003")
     runs.finish(retry["thread_id"], "failed", "Second failure")
     runs.finish(retry["thread_id"], "failed", "Duplicate report")
@@ -109,4 +110,6 @@ def test_five_unique_slots_and_upgrade_preserves_records(tmp_path):
     store.initialize()
     assert len(runs.list("CLM-1001")) == 2
     assert store.detail("CLM-1001").status == "needs_handler"
-    assert queue.start().target == 24
+    resumed = queue.start()
+    assert resumed.target == 5
+    assert resumed.admitted == [f"CLM-{n}" for n in range(1001, 1006)]
