@@ -216,7 +216,9 @@ def test_lost_payment_response_reconciles(client, monkeypatch):
 
     monkeypatch.setattr(main, "request", lost)
     tools = {t.name: t for t in main.tools_for("CLM-1001")}
-    assert tools["pay_claim"].invoke({"amount": 420})["amount_cents"] == 42000
+    assert (
+        tools["pay_claim"].invoke({"amount": 420})["payment"]["amount_cents"] == 42000
+    )
     assert client.get("/api/claims/CLM-1001").json()["payment"]["amount"] == 420
 
 
@@ -268,7 +270,9 @@ def test_lost_decision_response_reconciles(client, monkeypatch):
 
     monkeypatch.setattr(main, "request", lost)
     tools = {t.name: t for t in main.tools_for("CLM-1001")}
-    assert tools["record_decision"].invoke(decision())["payout_amount"] == 420
+    assert (
+        tools["record_decision"].invoke(decision())["decision"]["payout_amount"] == 420
+    )
     assert (
         client.get("/api/claims/CLM-1001").json()["decision"]["payout_cents"] == 42000
     )

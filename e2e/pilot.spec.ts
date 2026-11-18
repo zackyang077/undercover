@@ -96,7 +96,11 @@ test("over-limit payment is blocked until handler sign-off", async ({
   const duplicate = await request.post("/api/claims/CLM-1003/payment", {
     data: { amount: 3750 },
   });
-  expect(duplicate.status()).toBe(409);
+  expect(duplicate.status()).toBe(200);
+  expect(await duplicate.json()).toMatchObject({
+    status: "decided",
+    payment: { amount: 3750, simulated: true },
+  });
 });
 
 for (const scenario of [

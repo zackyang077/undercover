@@ -44,7 +44,9 @@ def test_sections_search_versions_and_references(tmp_path):
         assert client.get("/api/guidance/manual/sections/99").status_code == 404
         assert client.get("/api/guidance/evals/sections").status_code == 422
         assert client.get("/api/guidance/manual/search").status_code == 422
-        saved = client.post("/api/claims/CLM-1001/decision", json=decision()).json()
+        saved = client.post("/api/claims/CLM-1001/decision", json=decision()).json()[
+            "decision"
+        ]
         assert saved["manual_version"] == "2026.2"
         assert saved["wording_version"] == "2026.1"
         assert saved["decided_by"] == "UnderCover Agent"

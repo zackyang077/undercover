@@ -43,17 +43,26 @@ def test_boundary_sign_off_and_payment(client, amount):
             client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}).status_code
             == 200
         )
-        assert client.get(CLAIM).json()["payment"] is None
+        signed = client.get(CLAIM).json()
+        assert signed["payment"] is None
+        assert signed["status"] == "in_progress"
+        assert client.get("/api/claims").json()[0]["status"] == "in_progress"
         assert (
             client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}).status_code
             == 409
         )
         response = client.post(f"{CLAIM}/payment", json={"amount": amount})
     assert response.status_code == 200
-    assert response.json()["amount_cents"] == round(amount * 100)
-    assert response.json()["simulated"] is True
+    detail = response.json()
+    assert detail == client.get(CLAIM).json()
+    assert detail["payment"]["amount_cents"] == round(amount * 100)
+    assert detail["payment"]["simulated"] is True
+    assert detail["payment"]["sign_off"] == detail["sign_off"]
     assert client.get(CLAIM).json()["status"] == "decided"
-    assert client.post(f"{CLAIM}/payment", json={"amount": amount}).status_code == 409
+    replayed = client.post(f"{CLAIM}/payment", json={"amount": amount})
+    assert replayed.status_code == 200
+    assert replayed.json() == detail
+    assert client.post(f"{CLAIM}/payment", json={"amount": 1}).status_code == 409
     assert client.post(f"{CLAIM}/decision", json=decision()).status_code == 409
     assert client.get("/api/claims").json()[0]["payment_status"] == "paid"
     assert client.get("/api/claims").json()[0]["payout_amount"] == amount
@@ -88,15 +97,15 @@ def test_invalid_and_concurrent_payment(client):
         )
     assert client.post(f"{CLAIM}/payment", json={"amount": 419}).status_code == 409
     with ThreadPoolExecutor(max_workers=2) as pool:
-        statuses = list(
+        responses = list(
             pool.map(
-                lambda _: (
-                    client.post(f"{CLAIM}/payment", json={"amount": 420}).status_code
-                ),
+                lambda _: client.post(f"{CLAIM}/payment", json={"amount": 420}),
                 range(2),
             )
         )
-    assert sorted(statuses) == [200, 409]
+    assert [r.status_code for r in responses] == [200, 200]
+    assert responses[0].json() == responses[1].json() == client.get(CLAIM).json()
+    assert len(client.app.state.store.all("payments")) == 1
 
 
 def test_ineligible_handler_and_persistence(tmp_path):
@@ -119,3 +128,44 @@ def test_ineligible_handler_and_persistence(tmp_path):
         assert detail["decision"]["payout_cents"] == 125000
         assert detail["sign_off"]["handler_id"] == "HND-01"
         assert detail["payment"]["amount_cents"] == 125000
+
+
+def test_concurrent_decisions_replay_without_changing_business_fields(client):
+    payload = decision()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(lambda _: client.post(f"{CLAIM}/decision", json=payload), range(2))
+        )
+    assert [r.status_code for r in results] == [200, 200]
+    saved = results[0].json()
+    assert results[1].json() == saved == client.get(CLAIM).json()
+    assert len(client.app.state.store.all("decisions")) == 1
+    for change in (
+        {"explanation": "A different explanation."},
+        {"calculation": "A different calculation."},
+        {"payout_amount": 419},
+        {"policy_references": ["3"]},
+        {"manual_references": ["2"]},
+        {"outcome": "refer", "payout_amount": 0},
+    ):
+        conflicting = client.post(f"{CLAIM}/decision", json=payload | change)
+        assert conflicting.status_code == 409
+    equivalent = client.post(
+        f"{CLAIM}/decision", json=payload | {"payout_amount": "420.00"}
+    )
+    assert equivalent.json() == saved
+
+
+def test_payment_replay_after_response_loss_and_restart(tmp_path):
+    path = tmp_path / "lost-response.sqlite3"
+    with TestClient(create_app(path)) as client:
+        client.post(f"{CLAIM}/decision", json=decision(1250)).raise_for_status()
+        signed = client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}).json()
+        client.post(f"{CLAIM}/payment", json={"amount": 1250}).raise_for_status()
+        first = client.get(CLAIM).json()
+    reopened = create_app(path)
+    with TestClient(reopened) as client:
+        replayed = client.post(f"{CLAIM}/payment", json={"amount": "1250.00"})
+        assert replayed.json() == first
+        assert replayed.json()["payment"]["sign_off"] == signed
+        assert len(reopened.state.store.all("payments")) == 1

@@ -30,12 +30,11 @@ def claim_status(claim_id, data, running, failures, limit) -> str:
     decision = data["decisions"].get(claim_id)
     signed = data["sign_offs"].get(claim_id)
     if decision:
-        if (
-            decision["outcome"] == "approve"
-            and decision["payout_amount"] > limit
-            and not signed
-        ):
-            return "waiting_sign_off"
+        if decision["outcome"] == "approve" and claim_id not in data["payments"]:
+            if signed:
+                return "in_progress"
+            if decision["payout_amount"] > limit:
+                return "waiting_sign_off"
         return "decided"
     if running:
         return "in_progress"

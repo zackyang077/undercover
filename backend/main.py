@@ -102,7 +102,7 @@ def financial_routes(store: Store) -> APIRouter:
     finance = Finance(store)
 
     @router.post("/api/claims/{claim_id}/decision", operation_id="record_decision")
-    def record_decision(claim_id: str, decision: DecisionInput) -> dict[str, JsonValue]:
+    def record_decision(claim_id: str, decision: DecisionInput) -> ClaimDetail:
         """Save the agent's final decision."""
         return finance.decide(claim_id, decision)
 
@@ -112,7 +112,7 @@ def financial_routes(store: Store) -> APIRouter:
         return finance.sign_off(claim_id, request)
 
     @router.post("/api/claims/{claim_id}/payment", operation_id="pay_claim")
-    def pay_claim(claim_id: str, request: PaymentInput) -> dict[str, JsonValue]:
+    def pay_claim(claim_id: str, request: PaymentInput) -> ClaimDetail:
         """Record a simulated payment after enforcing the approval gate."""
         return finance.pay(claim_id, request)
 

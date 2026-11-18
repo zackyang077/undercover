@@ -180,3 +180,7 @@ The claim helper now calls the backend payout calculator. A Premium electronics 
 ## Durable claims · Phase 2
 
 SQLAlchemy Core now serves both databases. Queue and detail reads take at most three SELECTs. Legacy SQLite records and checkpoint-file reopening passed; the complete Python suite passed 115 tests. A hosted reseed followed by two initializations preserved 25 Waiting claims and zero attempts, decisions, payments or claim checkpoints. Supabase MCP returned all four business and four checkpoint tables in undercover, with three postgres sessions at inspection. The application and checkpoint pools each cap at two.
+
+## Durable claims · Phase 3
+
+Identical decision and full-payment requests return the existing claim. Conflicting decisions and incorrect amounts are refused. A signed, unpaid approval is In progress; its payment carries the handler and original sign-off timestamp. The complete Python suite passed 117 tests including concurrent replay and lost responses.
