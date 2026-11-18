@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -32,12 +31,9 @@ class SectionIndex(BaseModel):
     sections: list[dict[str, str]]
 
 
-def initialize(connection, root: Path):
+def initialize(store: Store, connection, root: Path):
     for document, filename in DOCUMENTS.items():
-        saved = connection.execute(
-            "SELECT 1 FROM records WHERE kind='guidance' AND id=?", (document,)
-        ).fetchone()
-        if saved:
+        if store.find(connection, "guidance", document):
             continue
         content = (root / filename).read_text(encoding="utf-8")
         introduction, *parts = re.split(r"(?m)^## (\d+)\. ([^\n]+)\n", content)
@@ -52,19 +48,16 @@ def initialize(connection, root: Path):
             }
             for i in range(0, len(parts), 3)
         ]
-        connection.execute(
-            "INSERT INTO records VALUES ('guidance',?,?)",
-            (
-                document,
-                json.dumps(
-                    {
-                        "document": document,
-                        "version": version[1],
-                        "introduction": introduction.strip(),
-                        "sections": sections,
-                    }
-                ),
-            ),
+        store.insert(
+            connection,
+            "guidance",
+            document,
+            {
+                "document": document,
+                "version": version[1],
+                "introduction": introduction.strip(),
+                "sections": sections,
+            },
         )
 
 

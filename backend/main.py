@@ -29,7 +29,7 @@ from backend.storage import Store
 
 
 def create_app(
-    path: Path,
+    path: Path | str,
     runner: Callable[[str, str], str] = run_agent,
     queue_runner: Callable[[str, str], str] = run_queue,
 ) -> FastAPI:
@@ -46,6 +46,7 @@ def create_app(
         yield
         await queue.close()
         await runs.close()
+        store.engine.dispose()
 
     application = FastAPI(title="UnderCover", lifespan=lifespan)
     application.state.store = store
@@ -118,4 +119,6 @@ def financial_routes(store: Store) -> APIRouter:
     return router
 
 
-app = create_app(Path(os.getenv("UNDERCOVER_DB", "undercover.sqlite3")))
+app = create_app(
+    os.getenv("DATABASE_URL") or Path(os.getenv("UNDERCOVER_DB", "undercover.sqlite3"))
+)

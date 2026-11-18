@@ -29,8 +29,7 @@ class Finance:
             manual_version=self.store.get("guidance", "manual")["version"],
             decided_by="UnderCover Agent",
         )
-        with self.store.connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.store.connection(write=True) as connection:
             if self.store.find(connection, "decisions", claim_id):
                 raise HTTPException(409, "A final decision already exists")
             self.store.insert(connection, "decisions", claim_id, record)
@@ -41,8 +40,7 @@ class Finance:
         handler = self.store.get("handlers", request.handler_id)
         if not handler["can_approve_over_limit"]:
             raise HTTPException(403, "Handler cannot approve over-limit payouts")
-        with self.store.connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.store.connection(write=True) as connection:
             decision = self.store.find(connection, "decisions", claim_id)
             if not decision or decision["outcome"] != "approve":
                 raise HTTPException(409, "An approved decision is required")
@@ -61,8 +59,7 @@ class Finance:
         limit = Decimal(
             str(self.store.get("settings", "company")["payout_approval_limit"])
         )
-        with self.store.connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.store.connection(write=True) as connection:
             decision = self.store.find(connection, "decisions", claim_id)
             if not decision or decision["outcome"] != "approve":
                 raise HTTPException(409, "An approved decision is required")

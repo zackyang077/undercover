@@ -1,13 +1,17 @@
-"""SQLite storage and explicit, one-time seed loading."""
+"""Portable business storage and explicit, one-time seed loading."""
 
 import json
-import sqlite3
-from contextlib import closing, contextmanager
+from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, cast
+from threading import local
+from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import Connection, func, select
+from sqlalchemy.schema import CreateSchema
 
+from backend.db import attempts, engine_for, key, metadata, records, runs
 from backend.guidance import initialize as initialize_guidance
 from backend.schemas import Claim, ClaimDetail, ClaimSummary, Customer, Plan, Policy
 
@@ -22,44 +26,66 @@ MAX_ATTEMPTS = 2
 COMPANY_FIELDS = ("name", "currency", "payout_approval_limit", "policy_wording_version")
 
 
-class Store:
-    """Own a local database; each operation uses its own connection."""
+def claim_status(claim_id, data, running, failures, limit) -> str:
+    decision = data["decisions"].get(claim_id)
+    signed = data["sign_offs"].get(claim_id)
+    if decision:
+        if (
+            decision["outcome"] == "approve"
+            and decision["payout_amount"] > limit
+            and not signed
+        ):
+            return "waiting_sign_off"
+        return "decided"
+    if running:
+        return "in_progress"
+    return "needs_handler" if failures >= MAX_ATTEMPTS else "waiting"
 
-    def __init__(self, path: Path):
+
+class Store:
+    """Own the engine and share a connection across nested synchronous operations."""
+
+    def __init__(self, path: Path | str):
         self.path = path
+        self.engine = engine_for(path)
+        self._local = local()
 
     @contextmanager
-    def connection(self):
-        with closing(sqlite3.connect(self.path, timeout=10)) as connection:
-            connection.row_factory = sqlite3.Row
-            with connection:
+    def connection(self, *, write: bool = False):
+        current = getattr(self._local, "connection", None)
+        if current is not None:
+            yield current
+            return
+        with self.engine.begin() as connection:
+            if write:
+                if self.engine.dialect.name == "sqlite":
+                    connection.exec_driver_sql("BEGIN IMMEDIATE")
+                else:
+                    # Serialize the short mutations which share queue or claim state.
+                    connection.execute(select(func.pg_advisory_xact_lock(170418, 1)))
+            self._local.connection = connection
+            try:
                 yield connection
+            finally:
+                del self._local.connection
 
     def initialize(self):
-        with self.connection() as connection:
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS records "
-                "(kind TEXT, id TEXT, body TEXT NOT NULL, PRIMARY KEY(kind, id))"
-            )
-            connection.executescript(
-                "CREATE TABLE IF NOT EXISTS runs ("
-                "thread_id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, "
-                "status TEXT NOT NULL, started_at TEXT NOT NULL, "
-                "finished_at TEXT NOT NULL, error TEXT NOT NULL);"
-                "CREATE UNIQUE INDEX IF NOT EXISTS one_active_run ON runs(claim_id) "
-                "WHERE status='running';"
-                "CREATE TABLE IF NOT EXISTS harness_attempts "
-                "(thread_id TEXT PRIMARY KEY);"
-                "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, "
-                "thread_id TEXT NOT NULL, kind TEXT NOT NULL, tool_name TEXT NOT NULL, "
-                "text TEXT NOT NULL, created_at TEXT NOT NULL);"
-            )
-            initialize_guidance(connection, DATA)
+        with self.connection(write=True) as connection:
+            if self.engine.dialect.name == "postgresql":
+                connection.execute(CreateSchema("undercover", if_not_exists=True))
+            metadata.create_all(connection)
+            initialize_guidance(self, connection, DATA)
             if self.find(connection, "settings", "company"):
                 return
-            for kind, key in SEEDS.items():
-                for record in json.loads((DATA / f"{kind}.json").read_text()):
-                    self.insert(connection, kind, record[key], record)
+            for kind, id_field in SEEDS.items():
+                source = json.loads((DATA / f"{kind}.json").read_text(encoding="utf-8"))
+                connection.execute(
+                    records.insert(),
+                    [
+                        {"kind": kind, "id": row[id_field], "body": json.dumps(row)}
+                        for row in source
+                    ],
+                )
             plans = json.loads((DATA / "plans.json").read_text())
             for plan in plans["plans"]:
                 self.insert(connection, "plans", plan["plan"], plan)
@@ -82,89 +108,114 @@ class Store:
             )
 
     @staticmethod
-    def insert(connection, kind: str, record_id: str, body: object):
+    def insert(connection: Connection, kind: str, record_id: str, body: object):
         connection.execute(
-            "INSERT INTO records VALUES (?, ?, ?)",
-            (kind, record_id, json.dumps(body)),
+            records.insert().values(kind=kind, id=record_id, body=json.dumps(body))
         )
 
     @staticmethod
-    def find(connection, kind: str, record_id: str) -> dict[str, Any] | None:
-        row = connection.execute(
-            "SELECT body FROM records WHERE kind=? AND id=?", (kind, record_id)
-        ).fetchone()
-        return json.loads(row["body"]) if row else None
+    def update(connection: Connection, kind: str, record_id: str, body: object):
+        return connection.execute(
+            records.update().where(key(kind, record_id)).values(body=json.dumps(body))
+        )
+
+    @staticmethod
+    def find(
+        connection: Connection, kind: str, record_id: str
+    ) -> dict[str, Any] | None:
+        body = connection.scalar(select(records.c.body).where(key(kind, record_id)))
+        return json.loads(body) if body is not None else None
 
     def get(self, kind: str, record_id: str) -> dict[str, Any]:
         with self.connection() as connection:
-            row = connection.execute(
-                "SELECT body FROM records WHERE kind=? AND id=?", (kind, record_id)
-            ).fetchone()
-        if row is None:
+            value = self.find(connection, kind, record_id)
+        if value is None:
             raise HTTPException(404, "Record not found")
-        return json.loads(row["body"])
+        return value
 
     def all(self, kind: str) -> list[dict[str, Any]]:
         with self.connection() as connection:
-            rows = connection.execute(
-                "SELECT body FROM records WHERE kind=? ORDER BY id", (kind,)
-            ).fetchall()
-        return [json.loads(row["body"]) for row in rows]
+            rows = connection.scalars(
+                select(records.c.body)
+                .where(records.c.kind == kind)
+                .order_by(records.c.id)
+            )
+            return [json.loads(body) for body in rows]
+
+    def _snapshot(self, connection: Connection, *, include_policies: bool = False):
+        kinds = ("claims", "customers", "decisions", "sign_offs", "payments")
+        settings = records.c.kind == "settings"
+        if include_policies:
+            kinds += ("plans", "policies")
+            settings &= records.c.id.in_(("company", "plans"))
+        else:
+            settings &= records.c.id == "company"
+        snapshot: dict[str, dict[str, Any]] = defaultdict(dict)
+        query = (
+            select(records)
+            .where(records.c.kind.in_(kinds) | settings)
+            .order_by(records.c.kind, records.c.id)
+        )
+        for kind, record_id, body in connection.execute(query):
+            snapshot[kind][record_id] = json.loads(body)
+        return snapshot
 
     def detail(self, claim_id: str) -> ClaimDetail:
-        claim = self.get("claims", claim_id)
-        policy = self.get("policies", claim["policy_id"])
-        plans = self.get("settings", "plans")
         with self.connection() as connection:
-            decision = self.find(connection, "decisions", claim_id)
-            signed = self.find(connection, "sign_offs", claim_id)
-            payment = self.find(connection, "payments", claim_id)
-            active = connection.execute(
-                "SELECT 1 FROM runs WHERE claim_id=? AND status='running'", (claim_id,)
-            ).fetchone()
-        limit = self.get("settings", "company")["payout_approval_limit"]
-        failures = self.failures(claim_id)
-        status = "in_progress" if active else "waiting"
-        if not active and failures >= MAX_ATTEMPTS:
-            status = "needs_handler"
-        if decision:
-            status = "decided"
-            if (
-                decision["outcome"] == "approve"
-                and decision["payout_amount"] > limit
-                and not signed
-            ):
-                status = "waiting_sign_off"
-        return ClaimDetail(
-            claim=Claim.model_validate(claim),
-            policy=Policy.model_validate(policy),
-            customer=self.customer_history(claim),
-            plan=Plan.model_validate(self.get("plans", policy["plan"])),
-            add_ons=[a for a in plans["add_ons"] if a["add_on"] in policy["add_ons"]],
-            deductible_applies_to=plans["deductible_applies_to"],
-            approval_limit=limit,
-            status=status,
-            decision=decision,
-            sign_off=signed,
-            payment=payment,
-        )
+            data = self._snapshot(connection, include_policies=True)
+            if claim_id not in data["claims"]:
+                raise HTTPException(404, "Record not found")
+            claim = data["claims"][claim_id]
+            policy = data["policies"][claim["policy_id"]]
+            plans = data["settings"]["plans"]
+            decision = data["decisions"].get(claim_id)
+            signed = data["sign_offs"].get(claim_id)
+            payment = data["payments"].get(claim_id)
+            running = connection.scalar(
+                select(runs.c.thread_id).where(
+                    runs.c.claim_id == claim_id, runs.c.status == "running"
+                )
+            )
+            limit = data["settings"]["company"]["payout_approval_limit"]
+            status = claim_status(
+                claim_id,
+                data,
+                running,
+                self.failure_count(connection, claim_id),
+                limit,
+            )
+            return ClaimDetail(
+                claim=Claim.model_validate(claim),
+                policy=Policy.model_validate(policy),
+                customer=self.customer_history(claim, data),
+                plan=Plan.model_validate(data["plans"][policy["plan"]]),
+                add_ons=[
+                    a for a in plans["add_ons"] if a["add_on"] in policy["add_ons"]
+                ],
+                deductible_applies_to=plans["deductible_applies_to"],
+                approval_limit=limit,
+                status=status,
+                decision=decision,
+                sign_off=signed,
+                payment=payment,
+            )
 
-    def customer_history(self, claim: dict) -> Customer:
-        customer = self.get("customers", claim["customer_id"])
+    @staticmethod
+    def customer_history(claim: dict, data: dict) -> Customer:
+        customer = data["customers"][claim["customer_id"]]
         history = {
             c["claim_id"]: c
             for c in customer["previous_claims"]
             if c["filed_on"] <= claim["submitted_on"]
         }
-        for other in self.all("claims"):
+        for other in data["claims"].values():
             if (
                 other["customer_id"] != claim["customer_id"]
                 or other["submitted_on"] > claim["submitted_on"]
             ):
                 continue
-            with self.connection() as connection:
-                decision = self.find(connection, "decisions", other["claim_id"])
-                payment = self.find(connection, "payments", other["claim_id"])
+            decision = data["decisions"].get(other["claim_id"])
+            payment = data["payments"].get(other["claim_id"])
             history[other["claim_id"]] = {
                 "claim_id": other["claim_id"],
                 "filed_on": other["submitted_on"],
@@ -173,41 +224,69 @@ class Store:
                 "amount_paid": payment["amount"] if payment else 0,
             }
         history.pop(claim["claim_id"], None)
-        customer["previous_claims"] = sorted(
-            history.values(), key=lambda c: c["filed_on"]
+        return Customer.model_validate(
+            {
+                **customer,
+                "previous_claims": sorted(
+                    history.values(), key=lambda c: c["filed_on"]
+                ),
+            }
         )
-        return Customer.model_validate(customer)
 
     def failures(self, claim_id: str) -> int:
         with self.connection() as connection:
             return self.failure_count(connection, claim_id)
 
     @staticmethod
-    def failure_count(connection, claim_id: str) -> int:
-        return connection.execute(
-            "SELECT count(*) FROM runs JOIN harness_attempts USING(thread_id) "
-            "WHERE claim_id=? AND status IN ('failed','interrupted')",
-            (claim_id,),
-        ).fetchone()[0]
+    def failed_attempts():
+        return (
+            select(runs.c.claim_id, func.count().label("count"))
+            .select_from(runs.join(attempts, attempts.c.thread_id == runs.c.thread_id))
+            .where(runs.c.status.in_(("failed", "interrupted")))
+            .group_by(runs.c.claim_id)
+        )
+
+    @staticmethod
+    def failure_count(connection: Connection, claim_id: str) -> int:
+        row = connection.execute(
+            Store.failed_attempts().where(runs.c.claim_id == claim_id)
+        ).first()
+        return row[1] if row else 0
 
     def queue(self) -> list[ClaimSummary]:
-        return [self.summary(c["claim_id"]) for c in self.all("claims")]
-
-    def summary(self, claim_id: str) -> ClaimSummary:
-        detail = self.detail(claim_id)
-        outcome = str(detail.decision["outcome"]) if detail.decision else ""
-        return ClaimSummary(
-            claim_id=claim_id,
-            customer_name=detail.customer.name,
-            summary=detail.claim.summary,
-            claim_type=detail.claim.claim_type,
-            amount_claimed=detail.claim.amount_claimed,
-            status=detail.status,
-            outcome=outcome,
-            payout_amount=cast(int, detail.decision["payout_cents"]) / 100
-            if detail.decision
-            else None,
-            payment_status="paid"
-            if detail.payment
-            else ("unpaid" if outcome == "approve" else "not_applicable"),
-        )
+        with self.connection() as connection:
+            data = self._snapshot(connection)
+            limit = data["settings"]["company"]["payout_approval_limit"]
+            running = set(
+                connection.scalars(
+                    select(runs.c.claim_id).where(runs.c.status == "running")
+                )
+            )
+            failures = {r[0]: r[1] for r in connection.execute(self.failed_attempts())}
+        result = []
+        for cid, claim in data["claims"].items():
+            decision = data["decisions"].get(cid)
+            payment = data["payments"].get(cid)
+            outcome = decision["outcome"] if decision else ""
+            result.append(
+                ClaimSummary(
+                    claim_id=cid,
+                    customer_name=data["customers"][claim["customer_id"]]["name"],
+                    summary=claim["summary"],
+                    claim_type=claim["claim_type"],
+                    amount_claimed=claim["amount_claimed"],
+                    status=claim_status(
+                        cid,
+                        data,
+                        cid in running,
+                        failures.get(cid, 0),
+                        limit,
+                    ),
+                    outcome=outcome,
+                    payout_amount=decision["payout_cents"] / 100 if decision else None,
+                    payment_status="paid"
+                    if payment
+                    else ("unpaid" if outcome == "approve" else "not_applicable"),
+                )
+            )
+        return result

@@ -1,5 +1,3 @@
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -97,10 +95,7 @@ def test_quote_and_payment_use_the_seeded_company_limit(client):
     settings = store.get("settings", "company")
     settings["payout_approval_limit"] = 160
     with store.connection() as connection:
-        connection.execute(
-            "UPDATE records SET body=? WHERE kind='settings' AND id='company'",
-            (json.dumps(settings),),
-        )
+        store.update(connection, "settings", "company", settings)
     response = quote(client, "CLM-1001", "passport", [line("expense", 160.01)])
     assert response.json()["needs_sign_off"] is True
     claim = "/api/claims/CLM-1001"

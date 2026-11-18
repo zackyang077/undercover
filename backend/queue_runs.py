@@ -85,16 +85,13 @@ class QueueRuns:
         return QueueRun.model_validate(saved) if saved else None
 
     def save(self, connection, run: QueueRun):
-        connection.execute(
-            "INSERT INTO records VALUES ('queue_runs','current',?) "
-            "ON CONFLICT(kind,id) DO UPDATE SET body=excluded.body",
-            (run.model_dump_json(),),
-        )
+        body = run.model_dump(mode="json")
+        if not self.store.update(connection, "queue_runs", "current", body).rowcount:
+            self.store.insert(connection, "queue_runs", "current", body)
 
     @contextmanager
     def editing_connection(self, queue_run_id: str):
-        with self.store.connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.store.connection(write=True) as connection:
             saved = self.store.find(connection, "queue_runs", "current")
             if not saved or saved["queue_run_id"] != queue_run_id:
                 raise HTTPException(404, "Queue run not found")
@@ -113,8 +110,7 @@ class QueueRuns:
             raise HTTPException(409, "Queue is finished or stopping")
 
     def start(self, request: AllClaims | CappedClaims = ALL_CLAIMS) -> QueueRun:
-        with self.store.connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.store.connection(write=True) as connection:
             current = self.store.find(connection, "queue_runs", "current")
             if current and current["status"] == "running":
                 raise HTTPException(409, "The queue is already running")

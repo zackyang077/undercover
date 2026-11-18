@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -56,10 +55,7 @@ def test_records_and_restart(tmp_path, monkeypatch):
     claim = store.get("claims", "CLM-1001")
     claim["summary"] = "Preserved"
     with store.connection() as connection:
-        connection.execute(
-            "UPDATE records SET body=? WHERE kind='claims' AND id='CLM-1001'",
-            (json.dumps(claim),),
-        )
+        store.update(connection, "claims", "CLM-1001", claim)
     opened.clear()
     with TestClient(create_app(path)) as client:
         assert len(client.get("/api/claims").json()) == 25

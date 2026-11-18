@@ -6,7 +6,10 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 
+from backend.db import attempts, events
+from backend.db import runs as run_table
 from backend.finance import Finance, now
 from backend.schemas import PaymentInput
 from backend.storage import MAX_ATTEMPTS, Store
@@ -44,42 +47,46 @@ class Runs:
         self.tasks: set[asyncio.Task] = set()
 
     def recover(self):
-        with self.store.connection() as connection:
-            active = connection.execute(
-                "SELECT thread_id FROM runs WHERE status='running'"
-            ).fetchall()
-            for row in active:
+        with self.store.connection(write=True) as connection:
+            active = connection.scalars(
+                select(run_table.c.thread_id).where(run_table.c.status == "running")
+            ).all()
+            for thread_id in active:
                 self.finish(
-                    row["thread_id"],
-                    "interrupted",
-                    "Backend restarted; run was interrupted",
+                    thread_id, "interrupted", "Backend restarted; run was interrupted"
                 )
 
     def list(self, claim_id: str) -> list[Run]:
         self.store.get("claims", claim_id)
         with self.store.connection() as connection:
-            rows = connection.execute(
-                "SELECT * FROM runs WHERE claim_id=? ORDER BY started_at", (claim_id,)
-            ).fetchall()
-            return [
-                Run(
-                    **dict(row),
-                    run_id=row["thread_id"],
-                    events=[
-                        Event(**dict(event))
-                        for event in connection.execute(
-                            "SELECT * FROM events WHERE thread_id=? ORDER BY id",
-                            (row["thread_id"],),
-                        ).fetchall()
-                    ],
+            rows = (
+                connection.execute(
+                    select(run_table)
+                    .where(run_table.c.claim_id == claim_id)
+                    .order_by(run_table.c.started_at)
                 )
+                .mappings()
+                .all()
+            )
+            by_thread: dict[str, list[Event]] = {row["thread_id"]: [] for row in rows}
+            query = (
+                select(events)
+                .where(events.c.thread_id.in_(by_thread))
+                .order_by(events.c.id)
+            )
+            for event in connection.execute(query).mappings():
+                by_thread[event["thread_id"]].append(Event.model_validate(event))
+            return [
+                Run(**row, run_id=row["thread_id"], events=by_thread[row["thread_id"]])
                 for row in rows
             ]
 
     def begin(self, connection, claim_id: str) -> str:
-        active = connection.execute(
-            "SELECT 1 FROM runs WHERE claim_id=? AND status='running'", (claim_id,)
-        ).fetchone()
+        active = connection.scalar(
+            select(run_table.c.thread_id).where(
+                run_table.c.claim_id == claim_id, run_table.c.status == "running"
+            )
+        )
         if active or self.store.find(connection, "decisions", claim_id):
             raise HTTPException(
                 409, "Claim already has active work or a final decision"
@@ -88,21 +95,30 @@ class Runs:
             raise HTTPException(409, "Claim is left for a handler after two failures")
         thread_id = str(uuid4())
         connection.execute(
-            "INSERT INTO runs VALUES (?, ?, 'running', ?, '', '')",
-            (thread_id, claim_id, now()),
+            run_table.insert().values(
+                thread_id=thread_id,
+                claim_id=claim_id,
+                status="running",
+                started_at=now(),
+                finished_at="",
+                error="",
+            )
         )
-        connection.execute("INSERT INTO harness_attempts VALUES (?)", (thread_id,))
+        connection.execute(attempts.insert().values(thread_id=thread_id))
         connection.execute(
-            "INSERT INTO events(thread_id,kind,tool_name,text,created_at) "
-            "VALUES(?,'started','','Agent run started',?)",
-            (thread_id, now()),
+            events.insert().values(
+                thread_id=thread_id,
+                kind="started",
+                tool_name="",
+                text="Agent run started",
+                created_at=now(),
+            )
         )
         return thread_id
 
     def start(self, claim_id: str) -> Run:
         self.store.get("claims", claim_id)
-        with self.store.connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.store.connection(write=True) as connection:
             queue = self.store.find(connection, "queue_runs", "current")
             if queue and queue["status"] == "running":
                 raise HTTPException(409, "The queue is running; wait or stop it first")
@@ -110,36 +126,44 @@ class Runs:
         return self.list(claim_id)[-1]
 
     def event(self, thread_id: str, event: EventInput) -> dict[str, str]:
-        with self.store.connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT status FROM runs WHERE thread_id=?", (thread_id,)
-            ).fetchone()
-            if row is None:
+        with self.store.connection(write=True) as connection:
+            status = connection.scalar(
+                select(run_table.c.status).where(run_table.c.thread_id == thread_id)
+            )
+            if status is None:
                 raise HTTPException(404, "Run not found")
-            if row["status"] != "running":
+            if status != "running":
                 raise HTTPException(409, "Run is no longer active")
             connection.execute(
-                "INSERT INTO events(thread_id,kind,tool_name,text,created_at) "
-                "VALUES(?,?,?,?,?)",
-                (thread_id, event.kind, event.tool_name, event.text, now()),
+                events.insert().values(
+                    thread_id=thread_id,
+                    kind=event.kind,
+                    tool_name=event.tool_name,
+                    text=event.text,
+                    created_at=now(),
+                )
             )
         return {"status": "recorded"}
 
     def finish(self, thread_id: str, status: str, error: str):
-        with self.store.connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.store.connection(write=True) as connection:
             changed = connection.execute(
-                "UPDATE runs SET status=?, finished_at=?, error=? "
-                "WHERE thread_id=? AND status='running'",
-                (status, now(), error, thread_id),
+                run_table.update()
+                .where(
+                    run_table.c.thread_id == thread_id, run_table.c.status == "running"
+                )
+                .values(status=status, finished_at=now(), error=error)
             )
             if not changed.rowcount:
                 return
             connection.execute(
-                "INSERT INTO events(thread_id,kind,tool_name,text,created_at) "
-                "VALUES(?,?,?,?,?)",
-                (thread_id, status, "", error or "Agent run completed", now()),
+                events.insert().values(
+                    thread_id=thread_id,
+                    kind=status,
+                    tool_name="",
+                    text=error or "Agent run completed",
+                    created_at=now(),
+                )
             )
 
     def conclude(self, claim_id: str, thread_id: str, error: str) -> Run:

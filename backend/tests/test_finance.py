@@ -1,4 +1,3 @@
-import json
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -108,10 +107,7 @@ def test_ineligible_handler_and_persistence(tmp_path):
         handler = store.get("handlers", "HND-02")
         handler["can_approve_over_limit"] = False
         with store.connection() as connection:
-            connection.execute(
-                "UPDATE records SET body=? WHERE kind='handlers' AND id='HND-02'",
-                (json.dumps(handler),),
-            )
+            store.update(connection, "handlers", "HND-02", handler)
         assert (
             client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-02"}).status_code
             == 403

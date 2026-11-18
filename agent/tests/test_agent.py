@@ -239,10 +239,7 @@ def test_synthetic_manual_tool_flows(client, section, story, amount, outcome):
     claim = store.get("claims", "CLM-1001")
     claim.update(story=story, documents=[], items=[])
     with store.connection() as connection:
-        connection.execute(
-            "UPDATE records SET body=? WHERE kind='claims' AND id=?",
-            (json.dumps(claim), "CLM-1001"),
-        )
+        store.update(connection, "claims", "CLM-1001", claim)
     payload = {**decision(amount, outcome), "manual_references": [section]}
     messages = [
         call("read_claim", {}),

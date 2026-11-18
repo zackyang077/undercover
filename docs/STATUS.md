@@ -176,3 +176,7 @@ kernel; paid experiments were not rerun.
 ## Durable claims · Phase 1
 
 The claim helper now calls the backend payout calculator. A Premium electronics fixture pays $1,050 after third-party compensation and the deductible. The targeted tests cover company limits, financial boundaries, scripted tool use and Langfuse session grouping. Hosted traces are checked during the live trial.
+
+## Durable claims · Phase 2
+
+SQLAlchemy Core now serves both databases. Queue and detail reads take at most three SELECTs. Legacy SQLite records and checkpoint-file reopening passed; the complete Python suite passed 115 tests. A hosted reseed followed by two initializations preserved 25 Waiting claims and zero attempts, decisions, payments or claim checkpoints. Supabase MCP returned all four business and four checkpoint tables in undercover, with three postgres sessions at inspection. The application and checkpoint pools each cap at two.
