@@ -4,6 +4,7 @@ from pathlib import Path
 
 from sqlalchemy import (
     URL,
+    BigInteger,
     Column,
     Index,
     Integer,
@@ -55,6 +56,26 @@ events = Table(
     Column("created_at", Text, nullable=False),
 )
 Index("events_thread_order", events.c.thread_id, events.c.id)
+model_usage = Table(
+    "model_usage",
+    metadata,
+    Column("thread_id", Text, primary_key=True),
+    Column("call_id", Text, primary_key=True),
+    Column("claim_id", Text, nullable=False),
+    Column("run_id", Text, index=True),
+    Column("usage", Text),
+)
+work_segments = Table(
+    "work_segments",
+    metadata,
+    Column("thread_id", Text, primary_key=True),
+    Column("segment_id", Text, primary_key=True),
+    Column("claim_id", Text, nullable=False),
+    Column("run_id", Text, index=True),
+    Column("started_at", Text, nullable=False),
+    Column("finished_at", Text),
+    Column("elapsed_ms", BigInteger, nullable=False),
+)
 
 
 def engine_for(target: Path | str):

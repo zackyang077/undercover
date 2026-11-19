@@ -1,12 +1,16 @@
 """A synchronous claim graph with one checkpoint per model, tool and financial step."""
 
 import json
+import logging
 import time
 from collections.abc import Callable
 from contextvars import Context
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from functools import cached_property
+from time import monotonic_ns
 from typing import TypedDict, cast
+from uuid import uuid4
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -28,6 +32,11 @@ from agent.tracing import claim_config
 
 MAX_MODEL_CALLS = 30
 WAITING_FOR_SIGN_OFF = "Waiting for sign-off"
+log = logging.getLogger(__name__)
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 class ClaimState(TypedDict):
@@ -59,11 +68,20 @@ def recorded(detail: dict) -> dict:
 class ClaimGraph:
     claim_id: str
     thread_id: str
+    run_id: str | None
     request: Callable
     emit: Callable
     tools: dict[str, BaseTool]
     get_model: Callable[[], BaseChatModel]
     deadline: float
+    segment_id: str = field(default_factory=lambda: str(uuid4()), init=False)
+    started_at: str = field(init=False)
+    started_ns: int = field(init=False)
+    last_elapsed_ms: int = field(default=-1, init=False)
+
+    def __post_init__(self) -> None:
+        self.started_at = utc_now()
+        self.started_ns = monotonic_ns()
 
     @property
     def path(self) -> str:
@@ -80,6 +98,30 @@ class ClaimGraph:
     def event(self, step: str, text: str) -> None:
         self.check_time()
         self.emit(self.thread_id, "step", step, text)
+
+    def record_telemetry(self, resource: str, values: dict) -> None:
+        report = self.request(
+            "POST",
+            f"/api/runs/{self.thread_id}/{resource}",
+            {"claim_id": self.claim_id, "run_id": self.run_id, **values},
+        )
+        if "error" in report:
+            raise RuntimeError(f"Could not record claim {resource}: {report['error']}")
+
+    def measure_work(self, *, finished: bool = False) -> None:
+        elapsed_ms = (monotonic_ns() - self.started_ns) // 1_000_000
+        if not finished and elapsed_ms == self.last_elapsed_ms:
+            return
+        self.record_telemetry(
+            "work-segments",
+            {
+                "segment_id": self.segment_id,
+                "started_at": self.started_at,
+                "finished_at": utc_now() if finished else None,
+                "elapsed_ms": elapsed_ms,
+            },
+        )
+        self.last_elapsed_ms = elapsed_ms
 
     def start(self, state: ClaimState) -> dict:
         self.event("start", "Checking claim for a saved decision")
@@ -103,13 +145,25 @@ class ClaimGraph:
 
     def model(self, state: ClaimState) -> dict:
         self.event("model", f"Reviewing claim (model call {state['calls']})")
+        model = self.bound_model
+        call_id = str(uuid4())
         try:
-            answer = self.bound_model.invoke(state["messages"])
+            answer = model.invoke(state["messages"])
         except Exception as error:
+            try:
+                self.record_telemetry("usage", {"call_id": call_id, "usage": None})
+            except Exception:
+                log.exception("Could not record usage for a failed model call")
             if not transient(error) or state["retry"]:
                 raise
             time.sleep(RETRY_DELAY)
             return {"route": "reserve", "retry": True}
+        usage = answer.response_metadata.get("token_usage")
+        self.record_telemetry(
+            "usage",
+            {"call_id": call_id, "usage": usage if isinstance(usage, dict) else None},
+        )
+        self.measure_work()
         self.check_time()
         if not isinstance(answer, AIMessage) or not answer.tool_calls:
             raise RuntimeError("The agent finished without a recorded decision")
@@ -248,4 +302,14 @@ def work(nodes: ClaimGraph, signed_record: dict | None) -> str:
 
 def run(nodes: ClaimGraph, signed_record: dict | None = None) -> str:
     """Advance one claim from its saved checkpoint."""
-    return Context().run(work, nodes, signed_record)
+    nodes.measure_work()
+    try:
+        result = Context().run(work, nodes, signed_record)
+    except Exception:
+        try:
+            nodes.measure_work(finished=True)
+        except Exception:
+            log.exception("Could not finish claim work measurement")
+        raise
+    nodes.measure_work(finished=True)
+    return result

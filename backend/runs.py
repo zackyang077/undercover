@@ -13,6 +13,7 @@ from backend.db import attempts, events
 from backend.db import runs as run_table
 from backend.finance import now
 from backend.storage import MAX_ATTEMPTS, Store
+from backend.telemetry import routes as telemetry_routes
 
 
 class EventInput(BaseModel):
@@ -253,6 +254,7 @@ class Runs:
 
 def routes(runs: Runs) -> APIRouter:
     router = APIRouter()
+    router.include_router(telemetry_routes(runs.store))
 
     @router.post(
         "/api/claims/{claim_id}/runs", status_code=202, operation_id="start_claim_run"

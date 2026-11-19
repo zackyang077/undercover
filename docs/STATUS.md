@@ -1,5 +1,19 @@
 # Status
 
+## Swarm · Phase 1
+
+The claim agent defaults to GPT-6 Luna with low reasoning. `MODEL_NAME`
+selects an override with no reasoning effort set. The backend records each
+OpenRouter usage report and active claim work by thread and executing run.
+Sign-off waits are excluded. An interrupted invocation retains its last
+recorded progress and a separate invocation records the resumed work.
+
+In an isolated checkout without `.env`, `npm run check:python` passed with
+148 tests and 95.33% coverage. A rolled-back PostgreSQL transaction verified
+the two new tables, call replay and work progress updates. The SQLite upgrade
+fixture reopened a Durable database with its original decision intact. Live
+model and dispatch acceptance belongs to the final phase.
+
 The durable claims build runs the dashboard on 5173, the business API on 8000,
 and the agent service on 8002. From the repository root run `uv sync`,
 `npm install` and `npm run dev`. Development reads the root .env when present.

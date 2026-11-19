@@ -3,6 +3,8 @@
 import json
 import os
 import time
+from dataclasses import dataclass
+from typing import Literal
 from urllib.parse import urlencode
 
 import httpx
@@ -16,7 +18,7 @@ from backend.payout import PayoutInput
 from backend.schemas import DecisionInput
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
+DEFAULT_MODEL = "openai/gpt-6-luna"
 CLAIM_SECONDS = int(
     os.getenv("UNDERCOVER_CLAIM_SECONDS", "600" if os.getenv("DATABASE_URL") else "180")
 )
@@ -131,14 +133,27 @@ def emit(thread_id: str, kind: str, tool_name: str, text: str):
             raise RuntimeError("Activity could not be recorded for this run")
 
 
-def model() -> ChatOpenAI:
-    """Return the configured OpenRouter model."""
+@dataclass(frozen=True)
+class ModelSettings:
+    model_name: str
+    reasoning_effort: Literal["low"] | None
+
+
+def model_settings() -> ModelSettings:
+    """Resolve the effective model and reasoning effort."""
     name = os.getenv("MODEL_NAME")
+    return ModelSettings(name, None) if name else ModelSettings(DEFAULT_MODEL, "low")
+
+
+def model(settings: ModelSettings | None = None) -> ChatOpenAI:
+    """Return the configured OpenRouter model."""
+    settings = settings or model_settings()
     return ChatOpenAI(
-        model=name or DEFAULT_MODEL,
+        model=settings.model_name,
         base_url=OPENROUTER_BASE_URL,
         api_key=SecretStr(os.environ["OPENROUTER_API_KEY"]),
-        reasoning_effort="low" if not name or name == DEFAULT_MODEL else None,
+        reasoning_effort=settings.reasoning_effort,
+        use_responses_api=False,
         timeout=45,
         max_retries=0,
     )
@@ -150,11 +165,13 @@ def run(
     llm: BaseChatModel | None = None,
     *,
     signed_record: dict | None = None,
+    run_id: str | None = None,
 ) -> str:
     """Advance the claim graph on one durable thread."""
     nodes = claim_graph.ClaimGraph(
         claim_id=claim_id,
         thread_id=thread_id,
+        run_id=run_id,
         request=claim_operation,
         emit=emit,
         tools={tool.name: tool for tool in tools_for(claim_id, thread_id)},

@@ -1,5 +1,6 @@
 import json
 from contextlib import nullcontext
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -8,8 +9,10 @@ from fastapi.testclient import TestClient
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, ToolMessage
+from sqlalchemy import select
 
 from agent import claim_graph, main, tracing
+from backend.db import model_usage, work_segments
 from backend.main import create_app
 from backend.tests.test_finance import decision
 
@@ -167,15 +170,185 @@ def test_recursion_limit_and_no_file_access(client, monkeypatch):
         main.run("CLM-1001", "thread-1", stub)
 
 
-@pytest.mark.parametrize("model_name", ["openrouter/free", "x-ai/grok-4.7"])
+@pytest.mark.parametrize("model_name", ["openrouter/free", "openai/gpt-6-luna"])
 def test_model_configuration(monkeypatch, model_name):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.delenv("MODEL_NAME", raising=False)
-    assert main.model().model_name == "deepseek/deepseek-v4.1-flash"
+    assert main.model().model_name == "openai/gpt-6-luna"
     assert main.model().reasoning_effort == "low"
     monkeypatch.setenv("MODEL_NAME", model_name)
     assert main.model().model_name == model_name
     assert main.model().reasoning_effort is None
+
+
+@pytest.mark.parametrize(
+    ("override", "usage"),
+    [
+        (
+            None,
+            {
+                "prompt_tokens": 120,
+                "completion_tokens": 12,
+                "total_tokens": 132,
+                "prompt_tokens_details": {"cached_tokens": 50},
+                "cost": 0.00013125,
+            },
+        ),
+        ("openrouter/free", {"cost": 0}),
+        (main.DEFAULT_MODEL, None),
+    ],
+)
+def test_openrouter_payload_and_usage_before_output_validation(
+    client, monkeypatch, override, usage
+):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.delenv("MODEL_NAME", raising=False)
+    if override:
+        monkeypatch.setenv("MODEL_NAME", override)
+
+    def completion(request):
+        assert request.url.path == "/api/v1/chat/completions"
+        body = json.loads(request.content)
+        assert body["model"] == (override or main.DEFAULT_MODEL)
+        if override:
+            assert "reasoning_effort" not in body
+        else:
+            assert body["reasoning_effort"] == "low"
+        assert body["tools"]
+        result = {
+            "id": "completion-fixture",
+            "object": "chat.completion",
+            "created": 1,
+            "model": body["model"],
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "Unusable reply"},
+                }
+            ],
+        }
+        if usage is not None:
+            result["usage"] = usage
+        return httpx.Response(200, json=result)
+
+    request = main.request
+    reports = []
+
+    def capture(method, path, body=None):
+        if path.endswith("/usage"):
+            reports.append(body)
+        return request(method, path, body)
+
+    monkeypatch.setattr(main, "request", capture)
+    implementation = main.ChatOpenAI
+    with httpx.Client(transport=httpx.MockTransport(completion)) as openrouter:
+        monkeypatch.setattr(
+            main,
+            "ChatOpenAI",
+            lambda **kwargs: implementation(**kwargs, http_client=openrouter),
+        )
+        with pytest.raises(RuntimeError, match="without a recorded decision"):
+            main.run("CLM-1001", "model-fixture")
+
+    (report,) = reports
+    assert report["claim_id"] == "CLM-1001"
+    assert report["run_id"] is None
+    with client.app.state.store.connection() as connection:
+        raw = connection.scalar(select(model_usage.c.usage))
+    if usage is None:
+        assert report["usage"] is None
+        assert raw is None
+    else:
+        saved = json.loads(raw)
+        # The OpenAI adapter fills unreported standard fields with nulls.
+        assert saved == report["usage"]
+        for key, value in usage.items():
+            if isinstance(value, dict):
+                assert {name: saved[key][name] for name in value} == value
+            else:
+                assert saved[key] == value
+
+
+def test_work_segments_and_usage_follow_each_invocation(client, monkeypatch):
+    seconds = 0
+    epoch = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def wall_time():
+        return (epoch + timedelta(seconds=seconds)).isoformat()
+
+    monkeypatch.setattr(claim_graph, "monotonic_ns", lambda: seconds * 1_000_000_000)
+    monkeypatch.setattr(claim_graph, "utc_now", wall_time)
+    request = main.request
+    segments = []
+    usage = []
+
+    def capture(method, path, body=None):
+        nonlocal seconds
+        if path.endswith("/work-segments"):
+            segments.append(body)
+        if path.endswith("/usage"):
+            usage.append(body)
+        if path.endswith("/payment"):
+            seconds += 3
+        result = request(method, path, body)
+        if path.endswith("/usage") and len(usage) == 1:
+            raise httpx.ReadTimeout("Response lost after usage commit")
+        return result
+
+    generate = StubModel._generate
+
+    def spend_time(model, messages, **kwargs):
+        nonlocal seconds
+        seconds += 2
+        result = generate(model, messages, **kwargs)
+        result.generations[0].message.response_metadata["token_usage"] = {"cost": 0.001}
+        return result
+
+    monkeypatch.setattr(main, "request", capture)
+    monkeypatch.setattr(StubModel, "_generate", spend_time)
+    claim, thread = "CLM-1001", "same-thread"
+    with pytest.raises(RuntimeError, match="without a recorded decision"):
+        main.run(
+            claim,
+            thread,
+            StubModel(messages=iter([AIMessage(content="Unusable reply")])),
+            run_id="first-dispatch",
+        )
+    seconds += 120
+    stub = StubModel(messages=iter([call("record_decision", decision(1250))]))
+    assert (
+        main.run(claim, thread, stub, run_id="next-dispatch") == "Waiting for sign-off"
+    )
+    seconds += 3600
+    client.post(
+        f"/api/claims/{claim}/sign-off", json={"handler_id": "HND-01"}
+    ).raise_for_status()
+    assert main.run(claim, thread) == "approve: $1250.00"
+
+    first_report, replay, next_report = usage
+    assert first_report == replay
+    assert first_report["call_id"] != next_report["call_id"]
+    assert [first_report["run_id"], next_report["run_id"]] == [
+        "first-dispatch",
+        "next-dispatch",
+    ]
+    finished = [segment for segment in segments if segment["finished_at"]]
+    assert len({segment["segment_id"] for segment in finished}) == 3
+    assert [(segment["run_id"], segment["elapsed_ms"]) for segment in finished] == [
+        ("first-dispatch", 2000),
+        ("next-dispatch", 2000),
+        (None, 3000),
+    ]
+    with client.app.state.store.connection() as connection:
+        saved_usage = connection.execute(select(model_usage)).mappings().all()
+        saved_segments = connection.execute(select(work_segments)).mappings().all()
+    assert {(row["run_id"], row["call_id"]) for row in saved_usage} == {
+        (entry["run_id"], entry["call_id"]) for entry in (first_report, next_report)
+    }
+    assert all(json.loads(row["usage"])["cost"] == 0.001 for row in saved_usage)
+    assert len(saved_segments) == 3
+    assert all(row["finished_at"] for row in saved_segments)
 
 
 def test_section_tools_and_activity(client):
@@ -367,22 +540,46 @@ def test_signoff_committed_while_decision_is_returning(client, monkeypatch):
 def test_restart_keeps_investigation_and_model_call_budget(client, monkeypatch):
     claim = "CLM-1001"
     thread = client.app.state.runs.start(claim).thread_id
+    ticks_ns = 0
+    monkeypatch.setattr(claim_graph, "monotonic_ns", lambda: ticks_ns)
     with monkeypatch.context() as patch:
         generate = StubModel._generate
 
         def stop_on_second_call(model, messages, **kwargs):
+            nonlocal ticks_ns
+            ticks_ns += 2_000_000_000
             if isinstance(messages[-1], ToolMessage):
                 raise SystemExit("Process stopped during model call")
             return generate(model, messages, **kwargs)
 
         patch.setattr(StubModel, "_generate", stop_on_second_call)
         with pytest.raises(SystemExit, match="Process stopped"):
-            main.run(claim, thread, StubModel(messages=iter([call("read_claim", {})])))
+            main.run(
+                claim,
+                thread,
+                StubModel(messages=iter([call("read_claim", {})])),
+                run_id="stopped-dispatch",
+            )
 
     result = main.run(
-        claim, thread, StubModel(messages=iter([call("record_decision", decision())]))
+        claim,
+        thread,
+        StubModel(messages=iter([call("record_decision", decision())])),
+        run_id="recovery-dispatch",
     )
     assert result == "approve: $420.00"
+    with client.app.state.store.connection() as connection:
+        stopped = (
+            connection.execute(
+                select(work_segments).where(
+                    work_segments.c.run_id == "stopped-dispatch"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert stopped["elapsed_ms"] == 2000
+    assert stopped["finished_at"] is None
     (run,) = client.get(f"/api/claims/{claim}/runs").json()
     assert [
         event["tool_name"] for event in run["events"] if event["kind"] == "tool_started"
