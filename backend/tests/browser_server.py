@@ -8,7 +8,6 @@ from pathlib import Path
 from agent.main import run
 from agent.tests.test_agent import StubModel, replies
 from backend.main import create_app
-from backend.tests.queue_stub import scripted_queue
 
 TEMP = tempfile.TemporaryDirectory(prefix="undercover-browser-")
 os.environ["UNDERCOVER_DB"] = str(Path(TEMP.name) / "browser.sqlite3")
@@ -37,8 +36,4 @@ def scripted_run(claim_id: str, thread_id: str) -> str:
     return run(claim_id, thread_id, StubModel(messages=iter(messages)))
 
 
-app = create_app(
-    Path(TEMP.name) / "browser.sqlite3",
-    scripted_run,
-    scripted_queue(scripted_run, early=True),
-)
+app = create_app(Path(TEMP.name) / "browser.sqlite3", scripted_run)

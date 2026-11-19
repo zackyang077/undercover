@@ -1,39 +1,39 @@
 """The service reads durable work and acknowledges completed steps over HTTP."""
 
 import json
-from typing import Literal
-from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, true
 
-from backend.db import events, records
+from backend.db import records
 from backend.db import runs as run_table
-from backend.finance import now
-from backend.queue_runs import AttemptEnd, QueueRuns
+from backend.runs import Runs
 from backend.storage import MAX_ATTEMPTS
+from backend.swarm import Swarm, swarm_claims
 
 
-class QueueEnd(BaseModel):
-    status: Literal["completed", "failed", "stopped"]
-    summary: str
+class AttemptEnd(BaseModel):
     error: str
 
 
-def recoverable_claims(queue: QueueRuns):
-    store = queue.store
+def recoverable_claims(runs: Runs):
+    store = runs.store
     with store.connection() as conn:
         rows = conn.execute(
-            select(run_table.c.claim_id, run_table.c.status).order_by(
-                run_table.c.started_at
-            )
+            select(
+                run_table.c.claim_id,
+                run_table.c.status,
+                select(swarm_claims.c.claim_id)
+                .where(swarm_claims.c.thread_id == run_table.c.thread_id)
+                .exists(),
+            ).order_by(run_table.c.started_at)
         )
-        latest = dict((row[0], row[1]) for row in rows)
+        latest = {claim: (status, in_swarm) for claim, status, in_swarm in rows}
         pending = {
             cid
-            for cid, status in latest.items()
-            if status in {"running", "interrupted"}
+            for cid, (status, in_swarm) in latest.items()
+            if not in_swarm and status in {"running", "interrupted"}
         }
         signed = {
             c.claim_id
@@ -42,21 +42,9 @@ def recoverable_claims(queue: QueueRuns):
             and c.payment_status == "unpaid"
             and c.status != "waiting_sign_off"
         }
-        batch = queue.current()
-        if batch and batch.status == "running":
-            pending.update(i.claim_id for i in batch.items if i.status == "running")
     return {
         "claims": [*sorted(signed), *(cid for cid in latest if cid in pending - signed)]
     }
-
-
-def unfinished_queue_item(queue: QueueRuns, claim_id: str) -> bool:
-    batch = queue.current()
-    return bool(
-        batch
-        and batch.status == "running"
-        and any(i.claim_id == claim_id and i.status == "running" for i in batch.items)
-    )
 
 
 def signed_thread(store, claim_id: str):
@@ -84,8 +72,8 @@ def signed_thread(store, claim_id: str):
         )
 
 
-def activate_thread(queue: QueueRuns, claim_id: str):
-    store = queue.store
+def activate_thread(runs: Runs, claim_id: str):
+    store = runs.store
     claims = store.queries.queue.order_by(None).subquery()
     latest = (
         select(run_table.c.thread_id, run_table.c.status.label("run_status"))
@@ -109,10 +97,8 @@ def activate_thread(queue: QueueRuns, claim_id: str):
         if row is None:
             raise HTTPException(404, "Record not found")
         payable = row.payment_status == "unpaid" and row.status != "waiting_sign_off"
-        if not (
-            payable
-            or row.run_status in {"running", "interrupted"}
-            or unfinished_queue_item(queue, claim_id)
+        if row.status == "waiting_sign_off" or not (
+            payable or row.run_status in {"running", "interrupted"}
         ):
             return None
         if row.thread_id:
@@ -124,31 +110,12 @@ def activate_thread(queue: QueueRuns, claim_id: str):
                     .values(status="running", finished_at="", error="")
                 )
         else:
-            thread = str(uuid4())
-            conn.execute(
-                run_table.insert().values(
-                    thread_id=thread,
-                    claim_id=claim_id,
-                    status="running",
-                    started_at=now(),
-                    finished_at="",
-                    error="",
-                )
-            )
-            conn.execute(
-                events.insert().values(
-                    thread_id=thread,
-                    kind="resumed",
-                    tool_name="",
-                    text="Continuing a saved decision",
-                    created_at=now(),
-                )
-            )
+            thread = Swarm.start_payment(conn, claim_id)
         return {"claim_id": claim_id, "thread_id": thread}
 
 
-def finish_claim(queue: QueueRuns, claim_id: str, thread_id: str, report: AttemptEnd):
-    runs, store = queue.runs, queue.store
+def finish_claim(runs: Runs, claim_id: str, thread_id: str, report: AttemptEnd):
+    store = runs.store
     with store.connection(write=True) as conn:
         if (
             conn.scalar(
@@ -157,10 +124,6 @@ def finish_claim(queue: QueueRuns, claim_id: str, thread_id: str, report: Attemp
             != claim_id
         ):
             raise HTTPException(404, "Claim attempt not found")
-        batch = queue.current()
-        if batch and any(i.thread_id == thread_id for i in batch.items):
-            queue.finish_attempt(batch.queue_run_id, thread_id, report.error)
-            return {"retry": False}
         result = runs.conclude(claim_id, thread_id, report.error)
         retry = (
             result.status == "failed"
@@ -172,19 +135,19 @@ def finish_claim(queue: QueueRuns, claim_id: str, thread_id: str, report: Attemp
         return {"retry": bool(retry)}
 
 
-def routes(queue: QueueRuns) -> APIRouter:
+def routes(runs: Runs) -> APIRouter:
     router = APIRouter(prefix="/api/work")
-    store = queue.store
+    store = runs.store
 
     @router.get("", operation_id="list_recoverable_work")
     def pending():
         """Find active attempts and payable outstanding approvals."""
-        return recoverable_claims(queue)
+        return recoverable_claims(runs)
 
     @router.post("/{claim_id}/activate", operation_id="activate_claim_thread")
     def activate(claim_id: str):
         """Return the existing attempt to resume, including a legacy unpaid decision."""
-        return activate_thread(queue, claim_id)
+        return activate_thread(runs, claim_id)
 
     @router.get("/{claim_id}/sign-off", operation_id="read_saved_sign_off")
     def saved_sign_off(claim_id: str):
@@ -199,20 +162,7 @@ def routes(queue: QueueRuns) -> APIRouter:
 
     @router.post("/{claim_id}/{thread_id}/finish", operation_id="finish_service_claim")
     def complete(claim_id: str, thread_id: str, report: AttemptEnd):
-        """Reconcile a resumed claim with its queue item or named attempt."""
-        return finish_claim(queue, claim_id, thread_id, report)
-
-    @router.post("/queue/{queue_id}/close", operation_id="finish_service_queue")
-    def close(queue_id: str, report: QueueEnd):
-        """Save the final state of the queue coordinator."""
-        queue.finish(queue_id, report.status, report.error, report.summary)
-        return {"status": "recorded"}
-
-    @router.post(
-        "/queue/{queue_id}/continue", operation_id="continue_interrupted_queue"
-    )
-    def continue_queue(queue_id: str):
-        """Reopen the interrupted batch after recovering its claim threads."""
-        return queue.continue_interrupted(queue_id)
+        """Reconcile an individually scheduled claim with its saved attempt."""
+        return finish_claim(runs, claim_id, thread_id, report)
 
     return router

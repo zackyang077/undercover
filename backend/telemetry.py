@@ -32,6 +32,7 @@ class SegmentInput(BaseModel):
 
 class Telemetry:
     def __init__(self, store: Store):
+        self.store = store
         self.engine = store.engine
         self.insert = (
             postgres_insert
@@ -83,7 +84,7 @@ class Telemetry:
             )
 
     def for_run(self, run_id: str):
-        with self.engine.begin() as connection:
+        with self.store.connection() as connection:
             usage = (
                 connection.execute(
                     select(model_usage).where(model_usage.c.run_id == run_id)

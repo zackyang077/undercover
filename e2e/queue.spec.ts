@@ -1,124 +1,158 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import type { ClaimSummary, QueueRun } from "../dashboard/src/types";
 
-async function currentQueue(request: APIRequestContext): Promise<QueueRun> {
-  const response = await request.get("/api/queue/runs/current");
-  return (await response.json()) as QueueRun;
+const CASES = { held: "CLM-1013", referred: "CLM-1014" };
+
+async function activate(
+  request: APIRequestContext,
+  run: string,
+  claim: string,
+) {
+  const response = await request.post(`${run}/claims/${claim}/activate`);
+  await expect(response).toBeOK();
+  const { thread_id } = (await response.json()) as { thread_id: string };
+  expect(thread_id).toBeTruthy();
+  return thread_id;
 }
 
-test("resumes a stopped batch to its original cap before starting a fresh batch", async ({
+async function settle(
+  request: APIRequestContext,
+  run: string,
+  claim: string,
+  thread: string,
+  outcome: "approve" | "refer",
+) {
+  const decision = await request.post(`/api/claims/${claim}/decision`, {
+    data: {
+      outcome,
+      payout_amount: outcome === "approve" ? 1250 : 0,
+      explanation: "This decision was recorded by the isolated browser test.",
+      calculation: "The stub uses a fixed payout for the approved fixture.",
+      policy_references: ["11"],
+      manual_references: ["2"],
+    },
+  });
+  await expect(decision).toBeOK();
+  const finished = await request.post(
+    `${run}/claims/${claim}/${thread}/finish`,
+    {
+      data: { error: "" },
+    },
+  );
+  await expect(finished).toBeOK();
+}
+
+test("starts a dispatch through the agent service and displays recorded results", async ({
   page,
   request,
 }) => {
-  const response = await request.get("/api/claims");
-  const body: unknown = await response.json();
-  const claims = body as ClaimSummary[];
-  const keep = new Set([
-    "CLM-1009",
-    "CLM-1010",
-    "CLM-1011",
-    "CLM-1012",
-    "CLM-1013",
-    "CLM-1014",
-  ]);
-  for (const claim of claims.filter(
-    (c) => c.status === "waiting" && !keep.has(c.claim_id),
-  )) {
-    const saved = await request.post(`/api/claims/${claim.claim_id}/decision`, {
-      data: {
-        outcome: "refer",
-        payout_amount: 0,
-        explanation:
-          "This is an isolated browser fixture. The claim is outside this queue scenario.",
-        calculation: "No payout in this test fixture.",
-        policy_references: ["11"],
-        manual_references: ["2"],
-      },
-    });
-    expect(saved.ok()).toBe(true);
-  }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/", { waitUntil: "domcontentloaded" });
   const control = page.getByRole("region", { name: "Queue processing" });
-  await page.getByLabel("Claim limit").fill("2");
-  await control.getByRole("button", { name: "Start queue (2)" }).click();
-  await expect(control.getByText("Processing queue")).toBeVisible();
-  const duplicate = await request.post("/api/queue/runs", {
-    data: { mode: "all" },
+  const agents = control.getByRole("combobox", {
+    name: "Claim agents at once",
   });
-  expect(duplicate.status()).toBe(409);
-  await page.reload();
-  await expect(control.getByText("Processing queue")).toBeVisible();
+  await expect(agents).toHaveValue("3");
+  await agents.selectOption("7");
+  const start = control.getByRole("button", { name: "Start dispatch" });
+  const accepted = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/dispatch") &&
+      response.request().method() === "POST",
+  );
+  await start.click();
+  const started = await accepted;
+  expect(started.status()).toBe(202);
+  const { run_id } = (await started.json()) as { run_id: string };
+  const observations = await request.get(
+    "http://127.0.0.1:8003/dispatch-observations",
+  );
+  expect(await observations.json()).toEqual([
+    { run_id, request: { concurrency: 7 } },
+  ]);
+  await expect(start).toBeDisabled();
+  expect((await request.get(`/api/dispatch/${run_id}`)).status()).toBe(404);
+
+  const created = await request.post("/api/swarm/runs", {
+    data: {
+      run_id,
+      kind: "dispatch",
+      model: "browser-stub",
+      reasoning_effort: null,
+      dataset: null,
+      size: null,
+      concurrency: 7,
+    },
+  });
+  expect(created.status()).toBe(201);
+  const run = `/api/swarm/runs/${run_id}`;
+  const thread = await activate(request, run, CASES.held);
+  const items = control.getByRole("list", { name: "Dispatch claims" });
+  await expect(control.getByText("Dispatch running")).toBeVisible();
   await expect(
-    control.getByRole("button", { name: "View current claim: CLM-1009" }),
+    items.getByRole("listitem").filter({ hasText: CASES.held }),
+  ).toContainText("In progress");
+  await page.reload();
+  await expect(control.getByText("Dispatch running")).toBeVisible();
+  await expect(agents).toHaveValue("7");
+  await expect(start).toBeDisabled();
+
+  const reports = `/api/runs/${thread}`;
+  await expect(
+    await request.post(`${reports}/usage`, {
+      data: {
+        call_id: "browser-call",
+        claim_id: CASES.held,
+        run_id,
+        usage: { cost: 0.0042, total_tokens: 13 },
+      },
+    }),
+  ).toBeOK();
+  await expect(
+    await request.post(`${reports}/work-segments`, {
+      data: {
+        segment_id: "browser-segment",
+        claim_id: CASES.held,
+        run_id,
+        started_at: "2026-11-13T08:00:00.000Z",
+        finished_at: "2026-11-13T08:00:00.250Z",
+        elapsed_ms: 250,
+      },
+    }),
+  ).toBeOK();
+  await settle(request, run, CASES.held, thread, "approve");
+  const referredThread = await activate(request, run, CASES.referred);
+  await settle(request, run, CASES.referred, referredThread, "refer");
+  const listed = await request.get(`${run}/work`);
+  await expect(listed).toBeOK();
+  const claimIds = (await listed.json()) as string[];
+  const dispositions = Object.fromEntries(
+    claimIds
+      .filter((id) => id !== CASES.held && id !== CASES.referred)
+      .map((id) => [id, "skipped"]),
+  );
+  await expect(
+    await request.post(`${run}/close`, {
+      data: { status: "completed", error: "", dispositions },
+    }),
+  ).toBeOK();
+
+  await expect(control.getByText("Dispatch completed")).toBeVisible();
+  await expect(
+    control.getByText("1 approved · 0 declined · 1 referred"),
   ).toBeVisible();
-  await control
-    .getByRole("button", { name: "Stop after current claim" })
-    .click();
-  await expect(control.getByText("Queue stopped")).toBeVisible();
-  await expect(control.getByText("1 / 2 processed")).toBeVisible();
-  const stopped = await currentQueue(request);
-  const blocked = await request.post("/api/claims/CLM-1009/payment", {
+  await expect(
+    control.getByText(`Waiting for sign-off · ${CASES.held} ($1,250.00)`),
+  ).toBeVisible();
+  await expect(
+    control.getByText("Model cost $0.0042 · Elapsed time 0.25 sec"),
+  ).toBeVisible();
+  const blocked = await request.post(`/api/claims/${CASES.held}/payment`, {
     data: { amount: 1250 },
   });
   expect(blocked.status()).toBe(403);
-  await page.reload();
-  await expect(control.getByText("Queue stopped")).toBeVisible();
-  await expect(page.getByLabel("Run scope")).toHaveCount(0);
-  await control.getByRole("button", { name: "Resume queue" }).click();
-  await expect(control.getByText("2 / 2 processed")).toBeVisible({
-    timeout: 15000,
-  });
-  await expect(control.getByText("Queue completed")).toBeVisible();
-  const resumed = await currentQueue(request);
-  expect(resumed.queue_run_id).toBe(stopped.queue_run_id);
-  expect(resumed.admitted).toEqual(["CLM-1009", "CLM-1010"]);
-  expect(resumed.items[0].thread_id).toBe(stopped.items[0].thread_id);
-  const firstAttempts = await request.get("/api/claims/CLM-1009/runs");
-  expect(await firstAttempts.json()).toHaveLength(1);
-  await page.getByLabel("Claim limit").fill("3");
-  await control.getByRole("button", { name: "Start queue (3)" }).click();
-  await expect(control.getByText("Queue completed")).toBeVisible({
-    timeout: 15000,
-  });
-  await expect(
-    control.getByText("2 completed · 1 failed · 0 skipped"),
-  ).toBeVisible();
-  await control.getByText("Failed claims (1)").click();
-  await expect(control.getByText(/provider failure/)).toBeVisible();
-  await control.getByRole("button", { name: "CLM-1012", exact: true }).click();
-  await expect(page.locator(".claim-heading")).toContainText("CLM-1012");
-  const latest = await currentQueue(request);
-  expect(latest.queue_run_id).not.toBe(stopped.queue_run_id);
-  expect(latest.admitted).toEqual(["CLM-1011", "CLM-1012", "CLM-1013"]);
-  expect(latest.items.map((item) => item.status)).toEqual([
-    "completed",
-    "failed",
-    "completed",
-    "pending",
-  ]);
-  const claimResponse = await request.get("/api/claims/CLM-1011");
-  const detail: unknown = await claimResponse.json();
-  expect(detail).toMatchObject({
-    decision: { outcome: "approve" },
-    payment: { simulated: true, amount: 420 },
-  });
-  const attempts = await request.get("/api/claims/CLM-1010/runs");
-  const savedRuns: unknown = await attempts.json();
-  expect(savedRuns).toHaveLength(2);
-  expect(latest.admitted).toHaveLength(3);
-  await expect(
-    control.getByRole("list", { name: "Run to-do list" }),
-  ).toContainText("Left for a handler");
-  await expect(
-    page.getByText(/Left for a handler after two unsuccessful attempts/),
-  ).toBeVisible();
-  const untouched = await request.get("/api/claims/CLM-1014");
-  expect(await untouched.json()).toMatchObject({
-    status: "waiting",
-    decision: null,
-  });
-  await control.getByRole("button", { name: "Start queue (1)" }).waitFor();
+  await items.getByRole("link", { name: CASES.held }).click();
+  await expect(page.locator(".claim-heading")).toContainText(CASES.held);
+  await expect(page).toHaveURL(new RegExp(`claim=${CASES.held}$`));
   await page.screenshot({
     path: "e2e/test-results/queue-completed.png",
     fullPage: true,

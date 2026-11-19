@@ -6,47 +6,17 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, Index, Integer, Table, Text, select, true
+from sqlalchemy import select, true
 
-from backend.db import events, metadata, records
+from backend.agent_service import AcceptedRun, start
+from backend.db import events, records, swarm_claims, swarm_runs
 from backend.db import runs as attempts
+from backend.db import swarm_active as active
 from backend.finance import now
 from backend.runs import Runs
 from backend.storage import MAX_ATTEMPTS
-
-swarm_runs = Table(
-    "swarm_runs",
-    metadata,
-    Column("run_id", Text, primary_key=True),
-    Column("kind", Text, nullable=False),
-    Column("status", Text, nullable=False),
-    Column("concurrency", Integer, nullable=False),
-    Column("model", Text, nullable=False),
-    Column("reasoning_effort", Text),
-    Column("dataset", Text),
-    Column("size", Text),
-    Column("created_at", Text, nullable=False),
-    Column("finished_at", Text),
-    Column("error", Text, nullable=False),
-    Column("snapshot", Text),
-)
-active = swarm_runs.c.status == "running"
-Index(
-    "one_active_swarm_run",
-    swarm_runs.c.status,
-    unique=True,
-    sqlite_where=active,
-    postgresql_where=active,
-)
-swarm_claims = Table(
-    "swarm_claims",
-    metadata,
-    Column("run_id", Text, primary_key=True),
-    Column("claim_id", Text, primary_key=True),
-    Column("position", Integer, nullable=False),
-    Column("thread_id", Text, index=True),
-    Column("status", Text, nullable=False),
-)
+from backend.swarm_metrics import measure
+from backend.telemetry import Telemetry
 
 Concurrency = Annotated[int, Field(strict=True, ge=1, le=25)]
 
@@ -72,6 +42,39 @@ class RunFinish(BaseModel):
     status: Literal["completed", "failed", "stopped"]
     error: str
     dispositions: dict[str, str]
+
+
+class DispatchItem(BaseModel):
+    claim_id: str
+    status: str
+    outcome: str | None
+    payout_amount: float | None
+
+
+class HeldPayout(BaseModel):
+    claim_id: str
+    payout_amount: float
+
+
+class DispatchSummary(BaseModel):
+    approved: int
+    declined: int
+    referred: int
+    waiting_sign_off: list[HeldPayout]
+    needs_handler: list[str]
+    in_progress: list[str]
+
+
+class DispatchRun(BaseModel):
+    run_id: str
+    status: str
+    concurrency: int
+    claims: list[DispatchItem]
+    summary: DispatchSummary | None
+    model_cost: str | None
+    model_cost_complete: bool
+    elapsed_ms: int | None
+    error: str
 
 
 class Swarm:
@@ -265,6 +268,102 @@ class Swarm:
                 .where(swarm_runs.c.run_id == run_id)
                 .values(status=request.status, error=request.error, finished_at=now())
             )
+            view = self.dispatch_view(run_id)
+            connection.execute(
+                swarm_runs.update()
+                .where(swarm_runs.c.run_id == run_id)
+                .values(snapshot=view.model_dump_json())
+            )
+
+    def dispatch_view(self, run_id: str) -> DispatchRun:
+        with self.store.connection() as connection:
+            run = (
+                connection.execute(
+                    select(swarm_runs).where(
+                        swarm_runs.c.run_id == run_id, swarm_runs.c.kind == "dispatch"
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if run is None:
+                raise HTTPException(404, "Dispatch not found")
+            if run["snapshot"]:
+                return DispatchRun.model_validate_json(run["snapshot"])
+            claim = self.store.queries.claims_projection.subquery()
+            rows = connection.execute(
+                select(
+                    swarm_claims.c.claim_id,
+                    swarm_claims.c.status.label("work_status"),
+                    claim.c.status,
+                    claim.c.outcome,
+                    claim.c.payout_amount,
+                    claim.c.payment_status,
+                )
+                .join(claim, claim.c.claim_id == swarm_claims.c.claim_id)
+                .where(swarm_claims.c.run_id == run_id)
+                .order_by(swarm_claims.c.position)
+            )
+            items = []
+            for row in rows:
+                status = row.status
+                if status == "decided" and row.payment_status == "unpaid":
+                    status = "in_progress"
+                if status == "waiting" and row.work_status in {"failed", "skipped"}:
+                    status = row.work_status
+                items.append(
+                    DispatchItem(
+                        claim_id=row.claim_id,
+                        status=status,
+                        outcome=row.outcome or None,
+                        payout_amount=row.payout_amount,
+                    )
+                )
+            usage, segments = Telemetry(self.store).for_run(run_id)
+        metrics, elapsed_ms = measure(usage, segments, run["status"])
+        costs = [claim.cost for claim in metrics.values() if claim.cost is not None]
+        complete = all(not claim.missing_cost for claim in metrics.values())
+        model_cost = str(sum(costs)) if costs or complete else None
+        summary = None
+        if run["status"] != "running":
+            summary = DispatchSummary(
+                approved=sum(item.outcome == "approve" for item in items),
+                declined=sum(item.outcome == "decline" for item in items),
+                referred=sum(item.outcome == "refer" for item in items),
+                waiting_sign_off=[
+                    HeldPayout(claim_id=item.claim_id, payout_amount=item.payout_amount)
+                    for item in items
+                    if item.status == "waiting_sign_off"
+                    and item.payout_amount is not None
+                ],
+                needs_handler=[
+                    item.claim_id for item in items if item.status == "needs_handler"
+                ],
+                in_progress=[
+                    item.claim_id for item in items if item.status == "in_progress"
+                ],
+            )
+        return DispatchRun(
+            run_id=run_id,
+            status=run["status"],
+            concurrency=run["concurrency"],
+            claims=items,
+            summary=summary,
+            model_cost=model_cost,
+            model_cost_complete=complete,
+            elapsed_ms=elapsed_ms,
+            error=run["error"],
+        )
+
+    def current_dispatch(self) -> DispatchRun | None:
+        with self.store.connection() as connection:
+            newest = connection.scalar(
+                select(swarm_runs.c.run_id)
+                .where(swarm_runs.c.kind == "dispatch")
+                .order_by(swarm_runs.c.created_at.desc(), swarm_runs.c.run_id)
+                .limit(1)
+            )
+            return self.dispatch_view(newest) if newest else None
 
     def recover(self):
         with self.store.connection(write=True) as connection:
@@ -282,6 +381,28 @@ class Swarm:
 
 
 def routes(swarm: Swarm) -> APIRouter:
+    router = APIRouter()
+    router.include_router(internal_routes(swarm))
+
+    @router.post("/api/dispatch", status_code=202, operation_id="start_dispatch")
+    def start_dispatch(body: StartDispatch) -> AcceptedRun:
+        """Ask the agent service to start a dispatch."""
+        return start("/dispatch", body)
+
+    @router.get("/api/dispatch/current", operation_id="get_current_dispatch")
+    def current_dispatch() -> DispatchRun | None:
+        """Read the most recent dispatch and its stored progress."""
+        return swarm.current_dispatch()
+
+    @router.get("/api/dispatch/{run_id}", operation_id="get_dispatch")
+    def get_dispatch(run_id: str) -> DispatchRun:
+        """Read one dispatch by its accepted run ID."""
+        return swarm.dispatch_view(run_id)
+
+    return router
+
+
+def internal_routes(swarm: Swarm) -> APIRouter:
     router = APIRouter(prefix="/api/swarm/runs")
 
     @router.post("", status_code=201, operation_id="create_agent_swarm_run")

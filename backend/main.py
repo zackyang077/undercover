@@ -12,8 +12,6 @@ from backend import dispatch
 from backend.finance import Finance
 from backend.guidance import routes as guidance_routes
 from backend.payout import routes as payout_routes
-from backend.queue_runs import QueueRuns
-from backend.queue_runs import routes as queue_routes
 from backend.runs import Runs, routes
 from backend.schemas import (
     ClaimDetail,
@@ -34,28 +32,23 @@ from backend.work import routes as work_routes
 def create_app(
     path: Path | str,
     runner: Callable[[str, str], str] | None = None,
-    queue_runner: Callable[[str, str], str] | None = None,
 ) -> FastAPI:
     """Create a backend with an isolated database location."""
     store = Store(path)
     runs = Runs(store, runner)
-    queue = QueueRuns(runs, queue_runner)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         store.initialize()
         if runner is not None:
             runs.recover()
-            queue.recover()
         yield
-        await queue.close()
         await runs.close()
         store.engine.dispose()
 
     application = FastAPI(title="UnderCover", lifespan=lifespan)
     application.state.store = store
     application.state.runs = runs
-    application.state.queue = queue
 
     @application.get("/api/health", operation_id="health")
     def health() -> dict[str, str]:
@@ -86,20 +79,14 @@ def create_app(
     def get_agent_instructions() -> dict[str, str]:
         """Read the instructions used by the claims agent."""
         claim = Path(__file__).with_name("instructions.md").read_text(encoding="utf-8")
-        queue = (
-            Path(__file__)
-            .with_name("instructions_queue.md")
-            .read_text(encoding="utf-8")
-        )
-        return {"content": claim, "claim": claim, "queue": queue}
+        return {"content": claim, "claim": claim}
 
     application.include_router(guidance_routes(store))
     application.include_router(payout_routes(store))
     application.include_router(financial_routes(store))
-    application.include_router(work_routes(queue))
+    application.include_router(work_routes(runs))
     application.include_router(routes(runs))
     application.include_router(swarm_routes(Swarm(runs)))
-    application.include_router(queue_routes(queue))
     return application
 
 

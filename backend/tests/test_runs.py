@@ -148,7 +148,7 @@ def test_agent_deadline_and_inactive_logging(tmp_path, monkeypatch):
 
 def test_unfinished_payment_preserves_thread_and_budget(tmp_path):
     app = create_app(tmp_path / "payment-failure.sqlite3")
-    with TestClient(app):
+    with TestClient(app) as client:
         runs = app.state.runs
         started = runs.start("CLM-1001")
         Finance(app.state.store).decide(
@@ -158,7 +158,9 @@ def test_unfinished_payment_preserves_thread_and_budget(tmp_path):
         assert result.status == "interrupted"
         assert app.state.store.failures("CLM-1001") == 0
         assert result.thread_id == started.thread_id
-        assert app.state.queue.task_status("CLM-1001") == "in_progress"
+        assert "CLM-1001" in client.get("/api/work").json()["claims"]
+        recovery = client.post("/api/work/CLM-1001/activate").json()
+        assert recovery["thread_id"] == started.thread_id
         detail = app.state.store.detail("CLM-1001")
         assert detail.decision is not None
         assert detail.payment is None

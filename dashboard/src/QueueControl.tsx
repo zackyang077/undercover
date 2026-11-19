@@ -1,308 +1,300 @@
 import { useEffect, useState } from "react";
-import { api, label, message } from "./api";
-import type { QueueRun, Todo } from "./types";
+import { ApiError, api, label, message, money } from "./api";
+
+export interface DispatchRun {
+  run_id: string;
+  status: "running" | "completed" | "stopped" | "failed";
+  concurrency: number;
+  claims: {
+    claim_id: string;
+    status: string;
+    outcome: string | null;
+    payout_amount: number | null;
+  }[];
+  summary: {
+    approved: number;
+    declined: number;
+    referred: number;
+    waiting_sign_off: { claim_id: string; payout_amount: number }[];
+    needs_handler: string[];
+    in_progress: string[];
+  } | null;
+  model_cost: string | null;
+  model_cost_complete: boolean;
+  elapsed_ms: number | null;
+  error: string;
+}
 
 type Props = Readonly<{
-  waiting: number;
+  eligible: number;
   onRefresh: () => Promise<void>;
   onRunningChange: (running: boolean) => void;
   onSelect: (claimId: string) => void;
 }>;
 
+const numberOfAgents = Array.from({ length: 25 }, (_, index) => index + 1);
+const costFormat = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 8,
+});
+const secondsFormat = new Intl.NumberFormat("en-US", {
+  style: "unit",
+  unit: "second",
+  maximumFractionDigits: 2,
+});
+const claimStatuses: Record<string, string> = {
+  needs_handler: "Left for a handler",
+  waiting_sign_off: "Waiting for sign-off",
+};
+const outcomeLabels: Record<string, string> = {
+  approve: "Approved",
+  decline: "Declined",
+  refer: "Referred",
+};
+
+function Summary({
+  summary,
+}: Readonly<{ summary: NonNullable<DispatchRun["summary"]> }>) {
+  const waiting = summary.waiting_sign_off.map(
+    ({ claim_id, payout_amount }) => `${claim_id} (${money(payout_amount)})`,
+  );
+  return (
+    <div className="run-summary">
+      <p>
+        {summary.approved} approved · {summary.declined} declined ·{" "}
+        {summary.referred} referred
+      </p>
+      {waiting.length > 0 && <p>Waiting for sign-off · {waiting.join(", ")}</p>}
+      {summary.needs_handler.length > 0 && (
+        <p>Left for a handler · {summary.needs_handler.join(", ")}</p>
+      )}
+      {summary.in_progress.length > 0 && (
+        <p>Still in progress · {summary.in_progress.join(", ")}</p>
+      )}
+    </div>
+  );
+}
+
+function ClaimStatus({
+  claim,
+  onSelect,
+}: Readonly<{
+  claim: DispatchRun["claims"][number];
+  onSelect: Props["onSelect"];
+}>) {
+  return (
+    <li className={`dispatch-claim-${claim.status}`}>
+      <a
+        className="queue-current mono"
+        href={`?claim=${encodeURIComponent(claim.claim_id)}`}
+        onClick={(event) => {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+            return;
+          event.preventDefault();
+          onSelect(claim.claim_id);
+        }}
+      >
+        {claim.claim_id}
+      </a>
+      {claim.outcome && (
+        <span>
+          {outcomeLabels[claim.outcome] ?? label(claim.outcome)}
+          {claim.outcome === "approve" &&
+            claim.payout_amount !== null &&
+            ` · ${money(claim.payout_amount)}`}
+        </span>
+      )}
+      <strong>{claimStatuses[claim.status] ?? label(claim.status)}</strong>
+    </li>
+  );
+}
+
 function Progress({
   run,
   onSelect,
-}: Readonly<{ run: QueueRun; onSelect: Props["onSelect"] }>) {
-  const finished = run.items.filter(
-    (item) =>
-      item.status === "completed" ||
-      (item.status === "failed" &&
-        run.todos.some(
-          (t) => t.claim_id === item.claim_id && t.status === "needs_handler",
-        )) ||
-      item.status === "skipped",
+}: Readonly<{ run: DispatchRun; onSelect: Props["onSelect"] }>) {
+  const total = run.claims.length;
+  const finished = run.claims.filter((claim) =>
+    ["decided", "waiting_sign_off", "needs_handler", "skipped"].includes(
+      claim.status,
+    ),
   ).length;
-  const failed = run.items.filter((item) => item.status === "failed");
-  const skipped = run.items.filter((item) => item.status === "skipped").length;
-  const current = run.items.find((item) => item.status === "running");
-  const complete = run.items.filter(
-    (item) => item.status === "completed",
-  ).length;
+  const cost =
+    run.model_cost === null
+      ? "Unavailable"
+      : costFormat.format(Number(run.model_cost));
+  const elapsed =
+    run.elapsed_ms === null ? "—" : secondsFormat.format(run.elapsed_ms / 1000);
   return (
-    <div className="queue-progress" role="status">
-      <div className="queue-progress-title">
-        <strong>
-          {run.status === "running"
-            ? "Processing queue"
-            : `Queue ${label(run.status).toLowerCase()}`}
-        </strong>
-        <span className="mono">
-          {finished} / {run.target} processed
+    <div className="queue-progress">
+      <div className="queue-progress-title" role="status">
+        <strong>Dispatch {run.status}</strong>
+        <span>
+          {run.concurrency}{" "}
+          {run.concurrency === 1 ? "claim agent" : "claim agents"}
         </span>
       </div>
-      <progress aria-label="Queue progress" max={run.target} value={finished} />
-      <p>
-        {complete} completed · {failed.length} failed · {skipped} skipped
+      <p className="muted">
+        Model cost {cost}
+        {run.model_cost !== null && !run.model_cost_complete && " (partial)"} ·
+        Elapsed time {elapsed}
       </p>
-      {current && (
-        <button
-          className="queue-current"
-          onClick={() => {
-            onSelect(current.claim_id);
-          }}
-        >
-          View current claim: {current.claim_id}
-        </button>
+      {total > 0 && (
+        <>
+          <p className="mono">
+            {finished} / {total} processed
+          </p>
+          <progress
+            aria-label="Dispatch progress"
+            max={total}
+            value={finished}
+          />
+        </>
       )}
-      {run.stop_requested && run.status === "running" && (
-        <p>Stopping after the current claim finishes.</p>
-      )}
-      <ol className="todo-list" aria-label="Run to-do list">
-        {run.todos.map((task) => (
-          <li key={task.claim_id} className={`todo-${task.status}`}>
-            <button
-              className="queue-current"
-              onClick={() => {
-                onSelect(task.claim_id);
-              }}
-            >
-              View {task.claim_id}
-            </button>
-            <span>{task.text}</span>
-            <strong>{todoLabel(task.status)}</strong>
-          </li>
+      <ol className="dispatch-claims" aria-label="Dispatch claims">
+        {run.claims.map((claim) => (
+          <ClaimStatus key={claim.claim_id} claim={claim} onSelect={onSelect} />
         ))}
       </ol>
-      {run.summary && <p className="run-summary">{run.summary}</p>}
+      {run.summary && <Summary summary={run.summary} />}
       {run.error && <p className="queue-failure">{run.error}</p>}
-      {failed.length > 0 && (
-        <details>
-          <summary>Failed claims ({failed.length})</summary>
-          {failed.map((item) => (
-            <div className="queue-failed-item" key={item.claim_id}>
-              <button
-                className="queue-current"
-                onClick={() => {
-                  onSelect(item.claim_id);
-                }}
-              >
-                {item.claim_id}
-              </button>
-              <p>{item.error}</p>
-            </div>
-          ))}
-        </details>
-      )}
     </div>
   );
 }
 
-function RunOptions({
-  scope,
-  limit,
-  busy,
-  onScope,
-  onLimit,
-}: Readonly<{
-  scope: string;
-  limit: string;
-  busy: boolean;
-  onScope: (value: string) => void;
-  onLimit: (value: string) => void;
-}>) {
-  return (
-    <div className="run-options">
-      <label>
-        Run scope
-        <select
-          value={scope}
-          onChange={(event) => {
-            onScope(event.target.value);
-          }}
-          disabled={busy}
-        >
-          <option value="capped">Limited trial</option>
-          <option value="all">All waiting claims</option>
-        </select>
-      </label>
-      {scope === "capped" && (
-        <label>
-          Claim limit
-          <input
-            type="number"
-            min="1"
-            step="1"
-            value={limit}
-            disabled={busy}
-            onChange={(event) => {
-              onLimit(event.target.value);
-            }}
-          />
-        </label>
-      )}
-    </div>
-  );
-}
-
-function validStart(scope: string, limit: string) {
-  return (
-    scope === "all" || (Number.isInteger(Number(limit)) && Number(limit) > 0)
-  );
-}
-
-function startBody(scope: string, limit: string) {
-  if (scope === "all") return { mode: "all" };
-  return { mode: "capped", max_claims: Number(limit) };
-}
-
-async function canResume(run: QueueRun | null) {
-  if (run?.status !== "stopped" && run?.status !== "interrupted") return false;
-  const check = await api<{ complete: boolean }>(
-    `/queue/runs/${run.queue_run_id}/check`,
-  );
-  return !check.complete;
-}
-
-function startOptions(
-  run: QueueRun | null,
-  waiting: number,
-  scope: string,
-  limit: string,
+function useDispatchMonitor(
+  onRefresh: Props["onRefresh"],
+  onRunningChange: Props["onRunningChange"],
 ) {
-  if (run)
-    return {
-      title: "Resume queue",
-      body: startBody(run.mode, String(run.target)),
-      enabled: true,
-    };
-  const planned =
-    scope === "all" ? waiting : Math.min(waiting, Number(limit) || 0);
-  return {
-    title: `Start queue (${String(planned)})`,
-    body: startBody(scope, limit),
-    enabled: waiting > 0 && validStart(scope, limit),
-  };
-}
-
-function todoLabel(status: Todo["status"]) {
-  const labels = {
-    pending: "To do",
-    in_progress: "In progress",
-    done: "Done",
-    needs_handler: "Left for a handler",
-  };
-  return labels[status];
-}
-
-export function QueueControl({
-  waiting,
-  onRefresh,
-  onRunningChange,
-  onSelect,
-}: Props) {
-  const [scope, setScope] = useState("capped");
-  const [limit, setLimit] = useState("5");
-  const [run, setRun] = useState<QueueRun | null>(null);
-  const [resumable, setResumable] = useState(false);
+  const [run, setRun] = useState<DispatchRun | null>(null);
+  const [watch, setWatch] = useState<{ runId: string | null }>({ runId: null });
   const [loaded, setLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [fetchError, setFetchError] = useState("");
-  const [revision, setRevision] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
+    let seenRun = false;
     let timer: ReturnType<typeof setTimeout>;
-    async function refresh() {
+    const path = `/dispatch/${watch.runId === null ? "current" : encodeURIComponent(watch.runId)}`;
+
+    async function poll() {
       try {
-        const next = await api<QueueRun | null>("/queue/runs/current");
-        const [resume] = await Promise.all([canResume(next), onRefresh()]);
+        const [next] = await Promise.all([
+          api<DispatchRun | null>(path),
+          onRefresh(),
+        ]);
         if (cancelled) return;
+        seenRun = next !== null;
         setRun(next);
-        setResumable(resume);
         setLoaded(true);
         setFetchError("");
         onRunningChange(next?.status === "running");
         if (next?.status === "running")
-          timer = setTimeout(() => {
-            void refresh();
-          }, 700);
+          timer = setTimeout(() => void poll(), 700);
       } catch (failure) {
-        if (!cancelled) {
-          setFetchError(message(failure));
-          setLoaded(true);
-          timer = setTimeout(() => {
-            void refresh();
-          }, 1500);
+        if (cancelled) return;
+        if (
+          watch.runId !== null &&
+          !seenRun &&
+          failure instanceof ApiError &&
+          failure.status === 404
+        ) {
+          timer = setTimeout(() => void poll(), 700);
+          return;
         }
+        setFetchError(message(failure));
+        timer = setTimeout(() => void poll(), 1500);
       }
     }
-    void refresh();
+    void poll();
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [revision, onRefresh, onRunningChange]);
+  }, [watch, onRefresh, onRunningChange]);
 
-  async function act(path: string, body: object) {
-    setBusy(true);
-    setError("");
+  function follow(runId: string | null) {
+    if (runId !== null) setRun(null);
+    setWatch({ runId });
+  }
+
+  const pending = watch.runId !== null && run?.run_id !== watch.runId;
+  return { run, pending, loaded, fetchError, follow };
+}
+
+export function QueueControl({
+  eligible,
+  onRefresh,
+  onRunningChange,
+  onSelect,
+}: Props) {
+  const [concurrency, setConcurrency] = useState(3);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState("");
+  const { run, pending, loaded, fetchError, follow } = useDispatchMonitor(
+    onRefresh,
+    onRunningChange,
+  );
+
+  async function start() {
+    setStarting(true);
+    setStartError("");
     try {
-      const next = await api<QueueRun>(path, body);
-      setRun(next);
-      onRunningChange(next.status === "running");
+      const accepted = await api<{ run_id: string }>("/dispatch", {
+        concurrency,
+      });
+      follow(accepted.run_id);
+      onRunningChange(true);
     } catch (failure) {
-      setError(message(failure));
+      setStartError(message(failure));
+      if (failure instanceof ApiError && failure.status === 409) follow(null);
     } finally {
-      setBusy(false);
-      setRevision((value) => value + 1);
+      setStarting(false);
     }
   }
+
   const running = run?.status === "running";
-  const start = startOptions(resumable ? run : null, waiting, scope, limit);
+  const busy = starting || pending || running;
   return (
     <section className="panel queue-control" aria-label="Queue processing">
-      {!running && !resumable && (
-        <RunOptions
-          scope={scope}
-          limit={limit}
-          busy={busy}
-          onScope={setScope}
-          onLimit={setLimit}
-        />
-      )}
+      <div className="run-options">
+        <label>
+          Claim agents at once
+          <select
+            value={running ? run.concurrency : concurrency}
+            disabled={busy}
+            onChange={(event) => {
+              setConcurrency(Number(event.target.value));
+            }}
+          >
+            {numberOfAgents.map((count) => (
+              <option key={count} value={count}>
+                {count}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="queue-control-heading">
         <div>
           <h2>Process the queue</h2>
-          <p className="muted">
-            Run the agent on waiting claims, one at a time. Payouts over $1,000
-            still need sign-off.
-          </p>
+          {eligible === 0 && !busy && (
+            <p className="muted">No claims ready for dispatch.</p>
+          )}
         </div>
-        {running ? (
-          <button
-            className="secondary"
-            disabled={busy || run.stop_requested}
-            onClick={() => {
-              void act(`/queue/runs/${run.queue_run_id}/stop`, {});
-            }}
-          >
-            Stop after current claim
-          </button>
-        ) : (
-          <button
-            className="primary"
-            disabled={!loaded || busy || !start.enabled}
-            onClick={() => {
-              void act("/queue/runs", start.body);
-            }}
-          >
-            {start.title}
-          </button>
-        )}
+        <button
+          className="primary"
+          disabled={!loaded || busy || eligible === 0}
+          onClick={() => void start()}
+        >
+          Start dispatch
+        </button>
       </div>
-      {(error || fetchError) && (
+      {(starting || pending) && <p role="status">Starting dispatch…</p>}
+      {(startError || fetchError) && (
         <p role="alert" className="error-banner">
-          {error || fetchError}
+          {startError || fetchError}
         </p>
       )}
       {run && <Progress run={run} onSelect={onSelect} />}

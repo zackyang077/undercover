@@ -1,3 +1,12 @@
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function api<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(
     `/api${path}`,
@@ -15,7 +24,8 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
       typeof data === "object" && data !== null && "detail" in data
         ? data.detail
         : null;
-    throw new Error(
+    throw new ApiError(
+      response.status,
       typeof detail === "string" ? detail : "Request failed. Please try again.",
     );
   }

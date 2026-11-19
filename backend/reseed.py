@@ -7,7 +7,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import inspect, table
+from sqlalchemy import MetaData, Table, inspect, table
 
 from backend.db import metadata
 from backend.storage import Store
@@ -40,6 +40,8 @@ def reseed_supabase(url: str):
         with store.connection(write=True) as connection:
             store.initialize()
             existing = set(inspect(connection).get_table_names(schema="undercover"))
+            for legacy in existing & {"queue_todos", "queue_run_todos", "todos"}:
+                Table(legacy, MetaData(), schema="undercover").drop(connection)
             for name in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
                 if name in existing:
                     connection.execute(table(name, schema="undercover").delete())

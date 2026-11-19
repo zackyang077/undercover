@@ -99,28 +99,3 @@ export interface Wording {
   version: string;
   content: string;
 }
-
-export interface Todo {
-  claim_id: string;
-  text: string;
-  status: "pending" | "in_progress" | "done" | "needs_handler";
-}
-export interface QueueRun {
-  queue_run_id: string;
-  target: number;
-  mode: "all" | "capped";
-  admitted: string[];
-  todos: Todo[];
-  summary: string;
-  status: "running" | "completed" | "stopped" | "interrupted" | "failed";
-  stop_requested: boolean;
-  created_at: string;
-  finished_at: string;
-  error: string;
-  items: {
-    claim_id: string;
-    thread_id: string;
-    status: "pending" | "running" | "completed" | "failed" | "skipped";
-    error: string;
-  }[];
-}

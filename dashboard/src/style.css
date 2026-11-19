@@ -763,13 +763,13 @@ footer {
   padding: 0.65rem;
   border-radius: 0.5rem;
 }
-.todo-list {
+.dispatch-claims {
   list-style: none;
   padding: 0;
   display: grid;
   gap: 0.65rem;
 }
-.todo-list li {
+.dispatch-claims li {
   display: flex;
   gap: 0.75rem;
   align-items: center;
@@ -778,17 +778,17 @@ footer {
   border-radius: 0.75rem;
   background: #f0f4f5;
 }
-.todo-list li strong {
+.dispatch-claims li strong {
   margin-left: auto;
   font-size: 0.85rem;
 }
-.todo-in_progress strong {
+.dispatch-claim-in_progress strong {
   color: #086b8c;
 }
-.todo-done strong {
+.dispatch-claim-decided strong {
   color: #087957;
 }
-.todo-needs_handler strong,
+.dispatch-claim-needs_handler strong,
 .needs_handler {
   color: #a82b4a;
 }

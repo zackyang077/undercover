@@ -94,18 +94,111 @@ def test_unreachable_service_keeps_saved_signoff(backend, monkeypatch):
     assert detail["payment"] is None
 
 
-@pytest.mark.parametrize("args", [[], ["--limit", "2"], ["--claim", CLAIM_ID]])
-def test_module_starts_work_and_wakes_service(backend, monkeypatch, capsys, args):
+def test_module_starts_work_and_wakes_service(backend, monkeypatch, capsys):
     notifications = []
     monkeypatch.setattr(dispatch, "notify", notifications.append)
-    monkeypatch.setattr(sys, "argv", ["agent", *args])
+    monkeypatch.setattr(sys, "argv", ["agent", CLAIM_ID])
     runpy.run_module("agent", run_name="__main__")
     reported = capsys.readouterr().out.strip()
-    if "--claim" in args:
-        (run,) = backend.get(f"{CLAIM}/runs").json()
-        assert reported == run["thread_id"]
-    else:
-        batch = backend.get("/api/queue/runs/current").json()
-        assert reported == batch["queue_run_id"]
-        assert batch["target"] == (2 if args else 5)
+    (run,) = backend.get(f"{CLAIM}/runs").json()
+    assert reported == run["thread_id"]
     assert notifications == ["/wake"]
+
+
+def test_module_requires_claim_or_serve(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["agent"])
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_module("agent", run_name="__main__")
+    assert exit_info.value.code == 2
+
+
+@pytest.mark.parametrize("kind", ["dispatch", "evaluation"])
+def test_accepts_before_backend_creation_and_reserves_one_run(kind, monkeypatch):
+    entering, allow_create = Event(), Event()
+    recorded = []
+    models = []
+
+    def model(settings):
+        models.append(settings)
+        return StubModel(messages=iter([]))
+
+    def api(method, path, body=None):
+        if path == "/api/swarm/runs/recover":
+            return {"evaluation_threads": []}
+        if path == "/api/work":
+            return {"claims": []}
+        recorded.append((method, path, body))
+        if path == "/api/swarm/runs":
+            entering.set()
+            assert allow_create.wait(timeout=5)
+            assert body is not None
+            return {"run_id": body["run_id"]}
+        if path.endswith("/work"):
+            return []
+        return {"status": "recorded"}
+
+    monkeypatch.setattr(service, "api", api)
+    monkeypatch.setattr(main, "model", model)
+    monkeypatch.delenv("MODEL_NAME", raising=False)
+    dispatch_request = ("/dispatch", {"concurrency": 3})
+    evaluation_request = (
+        "/evaluations",
+        {"dataset": "held_out", "size": "tiny", "concurrency": 5},
+    )
+    if kind == "dispatch":
+        first, second = dispatch_request, evaluation_request
+        expected_model, effort = main.DEFAULT_MODEL, "low"
+    else:
+        first, second = evaluation_request, dispatch_request
+        expected_model, effort = "openrouter/free", None
+        monkeypatch.setenv("MODEL_NAME", expected_model)
+
+    with TestClient(service.create_service()) as agent:
+        try:
+            invalid = {**first[1], "concurrency": 26}
+            assert agent.post(first[0], json=invalid).status_code == 422
+            accepted = agent.post(first[0], json=first[1])
+            assert accepted.status_code == 202
+            run_id = accepted.json()["run_id"]
+            assert entering.wait(timeout=5)
+            refused = agent.post(second[0], json=second[1])
+            assert refused.status_code == 409
+            monkeypatch.setenv("MODEL_NAME", "later-config")
+        finally:
+            allow_create.set()
+
+    assert recorded == [
+        (
+            "POST",
+            "/api/swarm/runs",
+            {
+                "run_id": run_id,
+                "kind": kind,
+                "concurrency": first[1]["concurrency"],
+                "model": expected_model,
+                "reasoning_effort": effort,
+                "dataset": first[1].get("dataset"),
+                "size": first[1].get("size"),
+            },
+        ),
+        ("GET", f"/api/swarm/runs/{run_id}/work", None),
+        (
+            "POST",
+            f"/api/swarm/runs/{run_id}/close",
+            {"status": "completed", "error": "", "dispositions": {}},
+        ),
+    ]
+    assert [(setting.model_name, setting.reasoning_effort) for setting in models] == [
+        (expected_model, effort)
+    ]
+
+
+def test_start_requires_recovery_before_accepting_work(monkeypatch):
+    def api(*args):
+        assert args == ("POST", "/api/swarm/runs/recover")
+        raise httpx.ConnectError("Backend is still starting")
+
+    monkeypatch.setattr(service, "api", api)
+    with TestClient(service.create_service()) as agent:
+        response = agent.post("/dispatch", json={"concurrency": 3})
+    assert response.status_code == 503

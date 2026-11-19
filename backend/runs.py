@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import literal, select
 
 from backend import dispatch
-from backend.db import attempts, events
+from backend.db import attempts, events, swarm_active, swarm_runs
 from backend.db import runs as run_table
 from backend.finance import now
 from backend.storage import MAX_ATTEMPTS, Store
@@ -130,9 +130,8 @@ class Runs:
     def start(self, claim_id: str) -> Run:
         self.store.get("claims", claim_id)
         with self.store.connection(write=True) as connection:
-            queue = self.store.find(connection, "queue_runs", "current")
-            if queue and queue["status"] == "running":
-                raise HTTPException(409, "The queue is running; wait or stop it first")
+            if connection.scalar(select(swarm_runs.c.run_id).where(swarm_active)):
+                raise HTTPException(409, "Wait for the current dispatch or evaluation")
             self.begin(connection, claim_id)
         return self.list(claim_id)[-1]
 

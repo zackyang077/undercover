@@ -10,7 +10,7 @@ export function App() {
   const [claims, setClaims] = useState<ClaimSummary[]>([]);
   const [handlers, setHandlers] = useState<Handler[]>([]);
   const [wording, setWording] = useState<Wording | null>(null);
-  const [instructions, setInstructions] = useState({ queue: "", claim: "" });
+  const [instructions, setInstructions] = useState({ claim: "" });
   const [selected, setSelected] = useState(
     () =>
       new URLSearchParams(window.location.search).get("claim") ?? "CLM-1001",
@@ -36,7 +36,7 @@ export function App() {
       api<ClaimSummary[]>("/claims"),
       api<Handler[]>("/handlers"),
       api<Wording>("/policy-wording"),
-      api<{ queue: string; claim: string }>("/agent/instructions"),
+      api<{ claim: string }>("/agent/instructions"),
     ])
       .then(([queue, people, policy, prompt]) => {
         if (cancelled) return;
@@ -104,8 +104,6 @@ export function App() {
         {!ready && !error && <p role="status">Loading claims desk…</p>}
         {ready && tab === "instructions" && (
           <section className="panel instructions">
-            <h2>Queue instructions</h2>
-            <pre>{instructions.queue}</pre>
             <h2>Claims handling instructions</h2>
             <p className="muted">
               Read only. These are the instructions served to the agent.
@@ -141,7 +139,14 @@ export function App() {
               </div>
             </section>
             <QueueControl
-              waiting={claims.filter((c) => c.status === "waiting").length}
+              eligible={
+                claims.filter(
+                  (c) =>
+                    c.status === "waiting" ||
+                    c.status === "in_progress" ||
+                    (c.status === "decided" && c.payment_status === "unpaid"),
+                ).length
+              }
               onRefresh={refreshQueue}
               onRunningChange={setQueueRunning}
               onSelect={selectClaim}

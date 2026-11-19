@@ -52,9 +52,8 @@ function setup(
       else if (url === "/api/agent/instructions")
         body = {
           claim: "Use the policy wording to decide claims.",
-          queue: "Plan the queue and delegate each claim.",
         };
-      else if (url === "/api/queue/runs/current") body = null;
+      else if (url === "/api/dispatch/current") body = null;
       else if (url.endsWith("/runs")) {
         if (init?.method === "POST") {
           runs = [structuredClone(running)];
@@ -309,7 +308,7 @@ it("normalizes non-string API errors", async () => {
   });
 });
 
-it("shows technical handler needs and both instruction sets", async () => {
+it("shows technical handler needs and read-only claim instructions", async () => {
   setup();
   detail.status = "needs_handler";
   render(<App />);
@@ -320,9 +319,7 @@ it("shows technical handler needs and both instruction sets", async () => {
   ).toBeDefined();
   expect(screen.queryByRole("button", { name: "Start agent" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Agent instructions" }));
-  expect(
-    screen.getByText("Plan the queue and delegate each claim."),
-  ).toBeDefined();
+  expect(screen.queryByText("Queue instructions")).toBeNull();
   expect(
     screen.getByText("Use the policy wording to decide claims."),
   ).toBeDefined();

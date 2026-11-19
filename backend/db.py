@@ -78,6 +78,41 @@ work_segments = Table(
 )
 
 
+swarm_runs = Table(
+    "swarm_runs",
+    metadata,
+    Column("run_id", Text, primary_key=True),
+    Column("kind", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("concurrency", Integer, nullable=False),
+    Column("model", Text, nullable=False),
+    Column("reasoning_effort", Text),
+    Column("dataset", Text),
+    Column("size", Text),
+    Column("created_at", Text, nullable=False),
+    Column("finished_at", Text),
+    Column("error", Text, nullable=False),
+    Column("snapshot", Text),
+)
+swarm_active = swarm_runs.c.status == "running"
+Index(
+    "one_active_swarm_run",
+    swarm_runs.c.status,
+    unique=True,
+    sqlite_where=swarm_active,
+    postgresql_where=swarm_active,
+)
+swarm_claims = Table(
+    "swarm_claims",
+    metadata,
+    Column("run_id", Text, primary_key=True),
+    Column("claim_id", Text, primary_key=True),
+    Column("position", Integer, nullable=False),
+    Column("thread_id", Text, index=True),
+    Column("status", Text, nullable=False),
+)
+
+
 def engine_for(target: Path | str):
     if isinstance(target, Path):
         return create_engine(

@@ -26,6 +26,19 @@ pool. A pooled checkout test held six saver invocations to four simultaneous
 reads. SQLite tests exercised 25 real checkpoint threads. `npm run
 check:python` passed with 169 tests and 95.86% coverage.
 
+## Swarm · Phase 3
+
+The queue starts dispatches with 1–25 workers and restores progress after a
+reload. The service owns start admission. The backend forwards the start and
+stores a final summary, model cost and elapsed time. Instructions now show
+the claim agent's prompt. `uv run -m agent CLM-1001` starts an individual claim.
+
+Phase checks passed with 158 Python tests (95.79% coverage) and 18 frontend tests
+(96.82% statement coverage). Playwright verified the forwarded concurrency,
+progress after reload and the persisted summary. `npm run dev` started the
+backend, agent service and dashboard in an isolated macOS checkout. Windows
+uses the same Node and uv launcher and was not runtime-tested.
+
 The durable claims build runs the dashboard on 5173, the business API on 8000,
 and the agent service on 8002. From the repository root run `uv sync`,
 `npm install` and `npm run dev`. Development reads the root .env when present.
