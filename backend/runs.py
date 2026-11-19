@@ -11,6 +11,7 @@ from sqlalchemy import literal, select
 from backend import dispatch
 from backend.db import attempts, events, swarm_active, swarm_runs
 from backend.db import runs as run_table
+from backend.eval_sources import evaluation_copies
 from backend.finance import now
 from backend.storage import MAX_ATTEMPTS, Store
 from backend.telemetry import routes as telemetry_routes
@@ -130,6 +131,14 @@ class Runs:
     def start(self, claim_id: str) -> Run:
         self.store.get("claims", claim_id)
         with self.store.connection(write=True) as connection:
+            if connection.scalar(
+                select(evaluation_copies.c.copy_id).where(
+                    evaluation_copies.c.copy_id == claim_id
+                )
+            ):
+                raise HTTPException(
+                    409, "Evaluation copies are worked by their evaluation"
+                )
             if connection.scalar(select(swarm_runs.c.run_id).where(swarm_active)):
                 raise HTTPException(409, "Wait for the current dispatch or evaluation")
             self.begin(connection, claim_id)

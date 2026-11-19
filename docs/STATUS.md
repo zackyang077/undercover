@@ -39,6 +39,19 @@ progress after reload and the persisted summary. `npm run dev` started the
 backend, agent service and dashboard in an isolated macOS checkout. Windows
 uses the same Node and uv launcher and was not runtime-tested.
 
+## Swarm · Phase 4
+
+Evaluations work fresh claim copies with isolated settlement and history.
+The backend uses dedicated tables to load two sets of 25 labels and the
+25 held-out sources. Tests verified both full and tiny modes, concurrent
+start admission, a rejected copy sign-off, and real checkpoint removal on
+a held copy. A stopped evaluation left its copies out of the next dispatch.
+
+The isolated suite passed 175 Python tests (96.01% coverage) and 20 frontend
+tests (96.96% statement coverage). A rolled-back PostgreSQL transaction
+verified both reference sets and full and tiny copy creation. The hosted
+reset check will use the final acceptance series' single seed.
+
 The durable claims build runs the dashboard on 5173, the business API on 8000,
 and the agent service on 8002. From the repository root run `uv sync`,
 `npm install` and `npm run dev`. Development reads the root .env when present.

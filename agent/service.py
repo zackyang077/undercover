@@ -15,6 +15,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from agent import main
+from agent.checkpoints import clear_threads
 from agent.claim_graph import WAITING_FOR_SIGN_OFF
 from agent.dispatcher import MAX_CONCURRENCY, dispatch
 from agent.ownership import ClaimOwnership
@@ -108,14 +109,17 @@ class Worker:
             self.resume(claim_id)
 
     def recover(self):
-        api("POST", f"{RUNS}/recover")
+        result = api("POST", f"{RUNS}/recover")
+        clear_threads(result.get("evaluation_threads", []))
 
     def run_swarm(self, job: ScheduledRun):
         api("POST", RUNS, job.model_dump())
         path = f"{RUNS}/{job.run_id}"
         status, error, dispositions = "completed", "", {}
         try:
-            claim_runner = self.run_claim
+            claim_runner = (
+                self.claim_runner if job.kind == "evaluation" else self.run_claim
+            )
             if self.can_resume_directly:
                 settings = main.ModelSettings(job.model, job.reasoning_effort)
                 claim_runner = partial(claim_runner, llm=main.model(settings))
@@ -128,11 +132,12 @@ class Worker:
             )
         except Exception as exc:
             status, error = "failed", failure_text(exc)
-        api(
+        result = api(
             "POST",
             f"{path}/close",
             {"status": status, "error": error, "dispositions": dispositions},
         )
+        clear_threads(result.get("evaluation_threads", []))
 
 
 class ServiceTasks:

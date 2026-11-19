@@ -7,10 +7,13 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.exceptions import ModelRateLimitError, ModelTimeoutError
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.base import empty_checkpoint
 from pydantic import SecretStr
 
 from agent import main
+from agent.checkpoints import open_saver
 from agent.swarm_work import SwarmWork
+from agent.tests.test_checkpoints import claim_config
 from backend.main import create_app
 from backend.tests.test_finance import decision
 
@@ -37,6 +40,37 @@ def test_empty_activation_skips_claim():
     assert work.work_claim(CLAIM_ID, RUN_ID) == "skipped"
     api.assert_called_once_with("POST", f"{CLAIM_PATH}/activate")
     claim_runner.assert_not_called()
+
+
+@pytest.mark.parametrize("clear_checkpoint", [False, True])
+def test_checkpoint_is_cleared_only_after_backend_settlement(clear_checkpoint):
+    current_thread = "held-claim"
+    unrelated_thread = "other-claim"
+    with open_saver() as saver:
+        for thread_id in (current_thread, unrelated_thread):
+            saver.put(claim_config(thread_id), empty_checkpoint(), {"step": 1}, {})
+
+    def api(method, path, body=None):
+        if path.endswith("/activate"):
+            return {"thread_id": current_thread}
+        assert method == "POST"
+        assert path == f"{CLAIM_PATH}/{current_thread}/finish"
+        assert body == {"error": ""}
+        with open_saver() as saver:
+            assert saver.get_tuple(claim_config(current_thread)) is not None
+        return {
+            "status": "waiting_sign_off",
+            "retry": False,
+            "clear_checkpoint": clear_checkpoint,
+        }
+
+    work = SwarmWork(api, lambda _: nullcontext(True), Mock())
+    assert work.work_claim(CLAIM_ID, RUN_ID) == "waiting_sign_off"
+    with open_saver() as saver:
+        assert (
+            saver.get_tuple(claim_config(current_thread)) is None
+        ) == clear_checkpoint
+        assert saver.get_tuple(claim_config(unrelated_thread)) is not None
 
 
 def test_failed_attempt_gets_one_fresh_thread():

@@ -9,6 +9,7 @@ from pydantic import JsonValue
 from sqlalchemy import case, select, tuple_
 
 from backend.db import records, runs
+from backend.eval_sources import evaluation_copies
 from backend.schemas import (
     ClaimDetail,
     DecisionInput,
@@ -47,14 +48,24 @@ class Finance:
             for kind in ("claims", "decisions", "sign_offs", "payments")
         ]
         keys.append(("settings", "company"))
+        claim_facts = "{}"
         if handler_id is not None:
             keys.append(("handlers", handler_id))
+            is_copy = (
+                select(evaluation_copies.c.copy_id)
+                .where(evaluation_copies.c.copy_id == claim_id)
+                .exists()
+            )
+            claim_facts = case((is_copy, '{"evaluation_copy":true}'), else_="{}")
         facts = {
             kind: json.loads(body)
             for kind, body in connection.execute(
                 select(
                     records.c.kind,
-                    case((records.c.kind == "claims", "{}"), else_=records.c.body),
+                    case(
+                        (records.c.kind == "claims", claim_facts),
+                        else_=records.c.body,
+                    ),
                 ).where(tuple_(records.c.kind, records.c.id).in_(keys))
             )
         }
@@ -96,6 +107,8 @@ class Finance:
     def sign_off(self, claim_id: str, request: SignOffInput) -> dict[str, JsonValue]:
         with self.store.connection(write=True) as connection:
             facts = self.payment_facts(connection, claim_id, request.handler_id)
+            if facts["claims"].get("evaluation_copy"):
+                raise HTTPException(403, "Evaluation copies cannot be signed off")
             handler = facts["handlers"]
             if not handler["can_approve_over_limit"]:
                 raise HTTPException(403, "Handler cannot approve over-limit payouts")

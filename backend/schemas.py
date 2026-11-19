@@ -143,6 +143,7 @@ class ClaimDetail(Settlement):
     add_ons: list[dict[str, JsonValue]]
     deductible_applies_to: list[str]
     approval_limit: float
+    evaluation_copy: bool = False
     decision: dict[str, JsonValue] | None = None
 
 

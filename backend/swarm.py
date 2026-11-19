@@ -12,6 +12,7 @@ from backend.agent_service import AcceptedRun, start
 from backend.db import events, records, swarm_claims, swarm_runs
 from backend.db import runs as attempts
 from backend.db import swarm_active as active
+from backend.eval_sources import EvalSet, EvalSize, create_copies
 from backend.finance import now
 from backend.runs import Runs
 from backend.storage import MAX_ATTEMPTS
@@ -25,13 +26,18 @@ class StartDispatch(BaseModel):
     concurrency: Concurrency
 
 
+class StartEvaluation(StartDispatch):
+    dataset: EvalSet
+    size: EvalSize
+
+
 class RunInput(StartDispatch):
     run_id: str
     kind: Literal["dispatch", "evaluation"]
     model: str
     reasoning_effort: str | None
-    dataset: Literal["evaluation", "held_out"] | None
-    size: Literal["full", "tiny"] | None
+    dataset: EvalSet | None
+    size: EvalSize | None
 
 
 class ClaimFinish(BaseModel):
@@ -109,9 +115,16 @@ class Swarm:
                 return
             if connection.scalar(select(swarm_runs.c.run_id).where(active)):
                 raise HTTPException(409, "A dispatch or evaluation is already running")
-            if request.kind != "dispatch" or request.dataset or request.size:
-                raise HTTPException(422, "A dispatch works the live claims queue")
-            claim_ids = self.candidates(connection)
+            if request.kind == "evaluation":
+                if not request.dataset or not request.size:
+                    raise HTTPException(422, "An evaluation requires a set and size")
+                claim_ids = create_copies(
+                    connection, request.run_id, request.dataset, request.size
+                )
+            else:
+                if request.dataset or request.size:
+                    raise HTTPException(422, "A dispatch works the live claims queue")
+                claim_ids = self.candidates(connection)
             connection.execute(
                 swarm_runs.insert().values(
                     **request.model_dump(), status="running", created_at=now(), error=""
@@ -230,7 +243,12 @@ class Swarm:
             & (swarm_claims.c.thread_id == thread_id)
         )
         with self.store.connection(write=True) as connection:
-            if not connection.scalar(select(swarm_claims.c.claim_id).where(member)):
+            kind = connection.scalar(
+                select(swarm_runs.c.kind)
+                .join(swarm_claims, swarm_runs.c.run_id == swarm_claims.c.run_id)
+                .where(member)
+            )
+            if not kind:
                 raise HTTPException(404, "Dispatch claim attempt not found")
             result = self.runs.conclude(claim_id, thread_id, error)
             retry = result.status == "failed" and (
@@ -241,17 +259,24 @@ class Swarm:
                 "paused": "waiting_sign_off",
                 "failed": "waiting" if retry else "needs_handler",
             }.get(result.status, "in_progress")
+            held_copy = kind == "evaluation" and disposition == "waiting_sign_off"
+            if held_copy:
+                disposition = "decided"
             connection.execute(
                 swarm_claims.update().where(member).values(status=disposition)
             )
-        return {"retry": retry, "status": disposition}
+        answer = {"retry": retry, "status": disposition}
+        if held_copy:
+            answer["clear_checkpoint"] = True
+        return answer
 
     def close(self, run_id: str, request: RunFinish):
         with self.store.connection(write=True) as connection:
-            if not connection.scalar(
-                select(swarm_runs.c.run_id).where(swarm_runs.c.run_id == run_id, active)
-            ):
-                return
+            kind = connection.scalar(
+                select(swarm_runs.c.kind).where(swarm_runs.c.run_id == run_id, active)
+            )
+            if not kind:
+                return []
             for claim_id, status in request.dispositions.items():
                 if status in {"failed", "skipped"}:
                     connection.execute(
@@ -268,12 +293,32 @@ class Swarm:
                 .where(swarm_runs.c.run_id == run_id)
                 .values(status=request.status, error=request.error, finished_at=now())
             )
-            view = self.dispatch_view(run_id)
-            connection.execute(
-                swarm_runs.update()
-                .where(swarm_runs.c.run_id == run_id)
-                .values(snapshot=view.model_dump_json())
+            if kind == "dispatch":
+                view = self.dispatch_view(run_id)
+                connection.execute(
+                    swarm_runs.update()
+                    .where(swarm_runs.c.run_id == run_id)
+                    .values(snapshot=view.model_dump_json())
+                )
+                return []
+            return self.cleanup_threads(connection, run_id)
+
+    @staticmethod
+    def cleanup_threads(connection, run_id: str | None = None) -> list[str]:
+        query = (
+            select(swarm_claims.c.thread_id)
+            .select_from(swarm_claims)
+            .join(swarm_runs, swarm_claims.c.run_id == swarm_runs.c.run_id)
+            .join(attempts, swarm_claims.c.thread_id == attempts.c.thread_id)
+            .where(
+                swarm_runs.c.kind == "evaluation",
+                swarm_runs.c.status != "running",
+                attempts.c.status.in_(("paused", "running", "interrupted")),
             )
+        )
+        if run_id:
+            query = query.where(swarm_runs.c.run_id == run_id)
+        return list(connection.scalars(query))
 
     def dispatch_view(self, run_id: str) -> DispatchRun:
         with self.store.connection() as connection:
@@ -377,7 +422,8 @@ class Swarm:
                         dispositions={},
                     ),
                 )
-        return {"evaluation_threads": []}
+            threads = self.cleanup_threads(connection)
+        return {"evaluation_threads": threads}
 
 
 def routes(swarm: Swarm) -> APIRouter:
@@ -388,6 +434,11 @@ def routes(swarm: Swarm) -> APIRouter:
     def start_dispatch(body: StartDispatch) -> AcceptedRun:
         """Ask the agent service to start a dispatch."""
         return start("/dispatch", body)
+
+    @router.post("/api/evaluations", status_code=202, operation_id="start_evaluation")
+    def start_evaluation(body: StartEvaluation) -> AcceptedRun:
+        """Ask the agent service to start a labelled evaluation."""
+        return start("/evaluations", body)
 
     @router.get("/api/dispatch/current", operation_id="get_current_dispatch")
     def current_dispatch() -> DispatchRun | None:
@@ -437,9 +488,8 @@ def internal_routes(swarm: Swarm) -> APIRouter:
         return swarm.finish(run_id, claim_id, thread_id, body.error)
 
     @router.post("/{run_id}/close", operation_id="close_swarm_run")
-    def close(run_id: str, body: RunFinish) -> dict[str, str]:
+    def close(run_id: str, body: RunFinish) -> dict[str, list[str]]:
         """Close the run while preserving independently recoverable claims."""
-        swarm.close(run_id, body)
-        return {"status": "recorded"}
+        return {"evaluation_threads": swarm.close(run_id, body)}
 
     return router

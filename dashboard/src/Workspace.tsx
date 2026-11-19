@@ -67,6 +67,20 @@ function isProcessing(detail: ClaimDetail | null) {
   );
 }
 
+function claimStartStatus(
+  runs: Run[],
+  queueRunning: boolean,
+  decided: boolean,
+) {
+  const active = runs.some((run) => run.status === "running");
+  if (active) return { active, title: "Agent is working" };
+  if (queueRunning) return { active, title: "Queue is running" };
+  const failed = runs.some(
+    (run) => run.status === "failed" || run.status === "interrupted",
+  );
+  return { active, title: failed && !decided ? "Retry agent" : "Start agent" };
+}
+
 type Settlement = Pick<ClaimDetail, "status" | "sign_off" | "payment">;
 
 function useClaimDetail(
@@ -174,15 +188,15 @@ export function Workspace({
       </section>
     );
   const { claim, decision } = detail;
-  const active = runs.some((run) => run.status === "running");
-  const retryable =
-    runs.some(
-      (run) => run.status === "failed" || run.status === "interrupted",
-    ) && !decision;
-  let startLabel = "Start agent";
-  if (retryable) startLabel = "Retry agent";
-  if (active) startLabel = "Agent is working";
-  if (queueRunning && !active) startLabel = "Queue is running";
+  const { evaluation_copy: evaluationCopy } = detail;
+  const { active, title: startLabel } = claimStartStatus(
+    runs,
+    queueRunning,
+    decision !== null,
+  );
+  let statusLabel = label(detail.status);
+  if (detail.status === "waiting_sign_off")
+    statusLabel = evaluationCopy ? "Held approval" : "Waiting for sign-off";
   const visibleError = [error, fetchError, activityError, listError].find(
     Boolean,
   );
@@ -191,6 +205,7 @@ export function Workspace({
       <section className="panel claim-heading">
         <div>
           <span className="eyebrow mono">{claimId}</span>
+          {evaluationCopy && <p className="muted">Evaluation copy</p>}
           <h2>{detail.customer.name}</h2>
           <p>{claim.summary}</p>
         </div>
@@ -199,15 +214,9 @@ export function Workspace({
           <strong className="claim-amount mono">
             {money(claim.amount_claimed)}
           </strong>
-          <span className={`status ${detail.status}`}>
-            {label(
-              detail.status === "waiting_sign_off"
-                ? "waiting for sign-off"
-                : detail.status,
-            )}
-          </span>
+          <span className={`status ${detail.status}`}>{statusLabel}</span>
           <ClaimStart
-            visible={!decision}
+            visible={!decision && !evaluationCopy}
             status={detail.status}
             label={startLabel}
             disabled={busy || active || queueRunning}
@@ -222,7 +231,7 @@ export function Workspace({
           {visibleError}
         </p>
       )}
-      {detail.status === "needs_handler" && (
+      {!evaluationCopy && detail.status === "needs_handler" && (
         <p className="error-banner" role="status">
           Left for a handler after two unsuccessful attempts. Review the
           activity and decide the next action.

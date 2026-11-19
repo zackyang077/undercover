@@ -73,6 +73,7 @@ export interface ClaimDetail {
   add_ons: Record<string, unknown>[];
   deductible_applies_to: string[];
   approval_limit: number;
+  evaluation_copy?: boolean;
   status: QueueStatus;
   decision: Decision | null;
   sign_off: {

@@ -11,6 +11,7 @@ from sqlalchemy import (
 )
 
 from backend.db import attempts, records, runs
+from backend.eval_sources import evaluation_copies
 
 
 def named(alias, kind, record_id):
@@ -28,6 +29,11 @@ class ClaimQueries:
         policy = records.alias("policy")
         plan = records.alias("plan")
         settings = records.alias("plan_settings")
+        evaluation_copy = (
+            select(evaluation_copies.c.copy_id)
+            .where(evaluation_copies.c.copy_id == claim.c.id)
+            .exists()
+        )
 
         def doc(alias):
             # Existing pilot records store JSON as TEXT on both databases.
@@ -94,13 +100,14 @@ class ClaimQueries:
             .select_from(linked)
             .where(claim.c.kind == "claims")
         )
-        self.queue = self.claims_projection.order_by(claim.c.id)
+        self.queue = self.claims_projection.where(~evaluation_copy).order_by(claim.c.id)
         full = (
             linked.join(
                 policy, named(policy, "policies", claim_doc["policy_id"].as_string())
             )
             .join(plan, named(plan, "plans", doc(policy)["plan"].as_string()))
             .join(settings, named(settings, "settings", "plans"))
+            .outerjoin(evaluation_copies, evaluation_copies.c.copy_id == claim.c.id)
         )
         self.detail = (
             select(
@@ -113,6 +120,7 @@ class ClaimQueries:
                 signed.c.body.label("sign_off"),
                 payment.c.body.label("payment"),
                 limit.label("approval_limit"),
+                evaluation_copies.c.source_id.label("evaluation_source_id"),
                 status,
             )
             .select_from(full)
@@ -131,6 +139,7 @@ class ClaimQueries:
             .select_from(outcomes)
             .where(
                 claim.c.kind == "claims",
+                ~evaluation_copy,
                 claim.c.id != bindparam("current_claim"),
                 customer_id == bindparam("customer_id"),
                 filed <= bindparam("filed_on"),

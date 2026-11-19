@@ -2,7 +2,7 @@
 
 import atexit
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from threading import Lock
@@ -73,3 +73,11 @@ def open_saver() -> Iterator[BaseCheckpointSaver]:
             with sqlite_setup_lock:
                 saver.setup()
             yield saver
+
+
+def clear_threads(thread_ids: Sequence[str]) -> None:
+    """Clear the checkpoints for evaluation attempts the backend has settled."""
+    if thread_ids:
+        with open_saver() as saver:
+            for thread_id in thread_ids:
+                saver.delete_thread(thread_id)

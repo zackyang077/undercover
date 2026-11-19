@@ -6,6 +6,7 @@ from contextlib import AbstractContextManager
 from langchain_core.exceptions import ModelRateLimitError, ModelTimeoutError
 
 from agent import main
+from agent.checkpoints import clear_threads
 
 
 def failure_text(error: Exception) -> str:
@@ -47,6 +48,8 @@ class SwarmWork:
                 result = self.api(
                     "POST", f"{path}/{thread_id}/finish", {"error": error}
                 )
+                if result.get("clear_checkpoint"):
+                    clear_threads([thread_id])
                 status = result["status"]
                 if not result["retry"]:
                     break
