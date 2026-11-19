@@ -14,6 +14,18 @@ the two new tables, call replay and work progress updates. The SQLite upgrade
 fixture reopened a Durable database with its original decision intact. Live
 model and dispatch acceptance belongs to the final phase.
 
+## Swarm · Phase 2
+
+The model-free dispatcher fans out the persisted claim list. Stub tests
+verified limits of 1, 3 and 25, including 25 overlapping claims. Provider
+429s and timeouts resume on the same thread. Other errors can consume one
+new attempt. Sign-off races retained the original decision and one payment.
+
+Each hosted claim invocation has a saver on the agent's shared four-connection
+pool. A pooled checkout test held six saver invocations to four simultaneous
+reads. SQLite tests exercised 25 real checkpoint threads. `npm run
+check:python` passed with 169 tests and 95.86% coverage.
+
 The durable claims build runs the dashboard on 5173, the business API on 8000,
 and the agent service on 8002. From the repository root run `uv sync`,
 `npm install` and `npm run dev`. Development reads the root .env when present.

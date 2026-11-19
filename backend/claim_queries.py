@@ -75,7 +75,7 @@ class ClaimQueries:
             .where(named(claim, "claims", bindparam("requested_claim")))
         )
         linked = financial.join(customer, named(customer, "customers", customer_id))
-        self.queue = (
+        self.claims_projection = (
             select(
                 claim.c.id.label("claim_id"),
                 doc(customer)["name"].as_string().label("customer_name"),
@@ -93,8 +93,8 @@ class ClaimQueries:
             )
             .select_from(linked)
             .where(claim.c.kind == "claims")
-            .order_by(claim.c.id)
         )
+        self.queue = self.claims_projection.order_by(claim.c.id)
         full = (
             linked.join(
                 policy, named(policy, "policies", claim_doc["policy_id"].as_string())

@@ -154,7 +154,7 @@ class ClaimGraph:
                 self.record_telemetry("usage", {"call_id": call_id, "usage": None})
             except Exception:
                 log.exception("Could not record usage for a failed model call")
-            if not transient(error) or state["retry"]:
+            if self.run_id is not None or not transient(error) or state["retry"]:
                 raise
             time.sleep(RETRY_DELAY)
             return {"route": "reserve", "retry": True}

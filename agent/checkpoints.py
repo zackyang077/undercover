@@ -19,39 +19,41 @@ class PostgresCheckpoints:
     def __init__(self):
         self.lock = Lock()
         self.pool: ConnectionPool[Connection[DictRow]] | None = None
-        self.saver: PostgresSaver | None = None
 
     def open(self, url: str) -> PostgresSaver:
         with self.lock:
-            if self.saver is None:
-                pool = ConnectionPool[Connection[DictRow]](
-                    url,
-                    min_size=0,
-                    max_size=2,
-                    kwargs={
-                        "autocommit": True,
-                        "prepare_threshold": 0,
-                        "row_factory": dict_row,
-                        "options": "-c search_path=undercover",
-                    },
-                )
-                try:
-                    saver = PostgresSaver(pool)
-                    saver.setup()
-                except Exception:
-                    pool.close()
-                    raise
-                self.pool, self.saver = pool, saver
-            return self.saver
+            if self.pool is not None:
+                return PostgresSaver(self.pool)
+            pool = ConnectionPool[Connection[DictRow]](
+                url,
+                min_size=0,
+                max_size=4,
+                open=True,
+                kwargs={
+                    "autocommit": True,
+                    "prepare_threshold": 0,
+                    "row_factory": dict_row,
+                    "options": "-c search_path=undercover",
+                },
+            )
+            try:
+                saver = PostgresSaver(pool)
+                saver.setup()
+            except Exception:
+                pool.close()
+                raise
+            self.pool = pool
+            return saver
 
     def close(self):
         with self.lock:
             if self.pool is not None:
                 self.pool.close()
-            self.pool = self.saver = None
+                self.pool = None
 
 
 postgres = PostgresCheckpoints()
+sqlite_setup_lock = Lock()
 atexit.register(postgres.close)
 
 
@@ -67,4 +69,7 @@ def open_saver() -> Iterator[BaseCheckpointSaver]:
     else:
         path = sqlite_path(Path(os.getenv("UNDERCOVER_DB", "undercover.sqlite3")))
         with SqliteSaver.from_conn_string(str(path)) as saver:
+            # Cold starts must not race to set WAL mode on the same file.
+            with sqlite_setup_lock:
+                saver.setup()
             yield saver

@@ -26,6 +26,8 @@ from backend.schemas import (
     Wording,
 )
 from backend.storage import Store
+from backend.swarm import Swarm
+from backend.swarm import routes as swarm_routes
 from backend.work import routes as work_routes
 
 
@@ -96,6 +98,7 @@ def create_app(
     application.include_router(financial_routes(store))
     application.include_router(work_routes(queue))
     application.include_router(routes(runs))
+    application.include_router(swarm_routes(Swarm(runs)))
     application.include_router(queue_routes(queue))
     return application
 

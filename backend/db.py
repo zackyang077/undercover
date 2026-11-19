@@ -90,7 +90,7 @@ def engine_for(target: Path | str):
         raise ValueError("DATABASE_URL must be a PostgreSQL session connection")
     return create_engine(
         url.set(drivername="postgresql+psycopg"),
-        pool_size=2,
+        pool_size=4,
         max_overflow=0,
         connect_args={"options": "-c search_path=undercover"},
     )
