@@ -23,6 +23,7 @@ from backend.schemas import (
     SignOffInput,
     Wording,
 )
+from backend.scoreboard import routes as scoreboard_routes
 from backend.storage import Store
 from backend.swarm import Swarm
 from backend.swarm import routes as swarm_routes
@@ -87,6 +88,7 @@ def create_app(
     application.include_router(work_routes(runs))
     application.include_router(routes(runs))
     application.include_router(swarm_routes(Swarm(runs)))
+    application.include_router(scoreboard_routes(store))
     return application
 
 

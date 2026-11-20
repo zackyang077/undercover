@@ -127,27 +127,36 @@ def test_model_uses_payout_result(client, monkeypatch):
     assert all(record[key] == expected for key, expected in saved.items())
 
 
-def test_claim_calls_trace_into_attempt_sessions(client, monkeypatch):
-    sessions = []
+def test_claim_traces_keep_attempt_session_and_tag_executing_run(client, monkeypatch):
+    traces = []
 
     class Recorder(BaseCallbackHandler):
         def on_chain_start(self, serialized, inputs, **kwargs):
             if kwargs.get("parent_run_id") is None:
-                sessions.append(kwargs["metadata"]["langfuse_session_id"])
+                metadata = kwargs["metadata"]
+                traces.append(
+                    (metadata["langfuse_session_id"], metadata.get("langfuse_tags"))
+                )
 
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "test-public")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "test-secret")
     monkeypatch.setattr(tracing, "CallbackHandler", Recorder)
     stub = StubModel(messages=iter(replies(1250)))
-    main.run("CLM-1001", "first", stub)
+    main.run("CLM-1001", "first", stub, run_id="dispatch-1")
     client.post(
         "/api/claims/CLM-1001/sign-off", json={"handler_id": "HND-01"}
     ).raise_for_status()
-    main.run("CLM-1001", "first", stub)
+    main.run("CLM-1001", "first", stub, run_id="dispatch-2")
     main.run("CLM-1001", "next", stub)
-    assert sessions == ["CLM-1001/first", "CLM-1001/first", "CLM-1001/next"]
+    assert traces == [
+        ("CLM-1001/first", ["dispatch-1"]),
+        ("CLM-1001/first", ["dispatch-2"]),
+        ("CLM-1001/next", None),
+    ]
     monkeypatch.delenv("LANGFUSE_SECRET_KEY")
-    assert "callbacks" not in tracing.claim_config("CLM-1001", "next")
+    config = tracing.claim_config("CLM-1001", "next", run_id="dispatch-3")
+    assert "callbacks" not in config
+    assert "metadata" not in config
 
 
 def test_recursion_limit_and_no_file_access(client, monkeypatch):

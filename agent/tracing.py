@@ -6,9 +6,13 @@ from langchain_core.runnables import RunnableConfig
 from langfuse.langchain import CallbackHandler
 
 
-def claim_config(claim_id: str, thread_id: str) -> RunnableConfig:
+def claim_config(
+    claim_id: str, thread_id: str, run_id: str | None = None
+) -> RunnableConfig:
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
         config["callbacks"] = [CallbackHandler()]
         config["metadata"] = {"langfuse_session_id": f"{claim_id}/{thread_id}"}
+        if run_id is not None:
+            config["metadata"]["langfuse_tags"] = [run_id]
     return config

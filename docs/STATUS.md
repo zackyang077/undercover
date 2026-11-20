@@ -1,5 +1,26 @@
 # Status
 
+Run `uv sync`, `npm install`, and `npm run dev` from the repository root. The
+dashboard listens on 5173, the business API on 8000, and the agent service on
+8002. Start live-queue dispatches from the Claims desk and evaluations from
+Scoreboard. Use `uv run -m agent CLM-1001` for a single claim.
+
+Development reads `.env` when present. Set `DATABASE_URL` to the Supabase
+session pooler or use `UNDERCOVER_DB` for a local SQLite file. SQLite defaults
+to `undercover.sqlite3` and saves checkpoints in a sibling file ending in
+`.checkpoints.sqlite3`. Live model calls require `OPENROUTER_API_KEY`.
+Set `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_BASE_URL` for traces.
+
+Stop the application before reseeding. `npm run seed` rebuilds the configured
+hosted `undercover` data, including dispatch and evaluation records. For a
+local trial, `uv run -m backend.reseed trial.sqlite3` backs up the selected
+business and checkpoint files before rebuilding them.
+
+Signing off records the handler and time, then notifies the service after
+commit. A signed live claim remains In progress until the saved thread pays.
+Agent startup stops unfinished dispatch and evaluation runs. Start a new
+dispatch to continue eligible live claims on their saved threads.
+
 ## Swarm · Phase 1
 
 The claim agent defaults to GPT-6 Luna with low reasoning. `MODEL_NAME`
@@ -52,25 +73,24 @@ tests (96.96% statement coverage). A rolled-back PostgreSQL transaction
 verified both reference sets and full and tiny copy creation. The hosted
 reset check will use the final acceptance series' single seed.
 
-The durable claims build runs the dashboard on 5173, the business API on 8000,
-and the agent service on 8002. From the repository root run `uv sync`,
-`npm install` and `npm run dev`. Development reads the root .env when present.
-Use the dashboard to start work or run `uv run -m agent --limit 5` with the
-services running. For one claim use `uv run -m agent --claim CLM-1001`.
+## Swarm · Phase 5
 
-DATABASE_URL selects the Supabase session pooler. Without it, UNDERCOVER_DB
-defaults to undercover.sqlite3 and checkpoints use a sibling file ending in
-.checkpoints.sqlite3. Stop the application before reseeding. `npm run seed`
-resets product data in the configured undercover schema. For a local trial,
-`uv run -m backend.reseed trial.sqlite3` backs up the selected business and
-checkpoint files before reseeding. Configure OPENROUTER_API_KEY for live work
-and LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL for tracing.
+The Scoreboard lists evaluations newest first and opens each run at its own
+URL. The backend compares every selected claim with the handler's decision.
+The seven-claim scoring fixture produced 4/7 decision accuracy, 3/7 accuracy
+within one dollar, 5/7 straight-through and $2,802.01 in mistakes.
 
-Sign off records the handler and time, then wakes the agent after commit. The
-claim stays In progress until the graph pays. Restart the agent to resume any
-interrupted or signed claims. A stopped batch resumes within the original cap.
-Current implementation and acceptance results appear in the Durable claims
-phase entries below.
+A SQLite fixture reconciled a stopped dispatch across two claims, including
+a failed attempt. It recorded 101 tokens, $0.0101 in known charges, 810 ms
+of active work and 520 ms elapsed. The next dispatch resumed the same thread
+and recorded 30 tokens, $0.0030 and 200 ms, including a replayed usage write.
+
+Playwright started a five-copy evaluation using the keyboard and verified all
+seven measures, four mismatches, and a rejected sign-off on the held copy.
+The live queue was identical before and after the evaluation. On a 390-pixel
+viewport, Chromium reloaded a stopped evaluation at its original URL and
+showed one of five copies worked. A local trace callback captured separate
+dispatch tags on the same claim session across invocations.
 
 ## Durable claims · Phase 1
 

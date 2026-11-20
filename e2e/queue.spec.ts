@@ -84,6 +84,16 @@ test("starts a dispatch through the agent service and displays recorded results"
     },
   });
   expect(created.status()).toBe(201);
+  const initial = await request.get(`/api/dispatch/${run_id}`);
+  await expect(initial).toBeOK();
+  const { claims } = (await initial.json()) as {
+    claims: { outcome: string | null }[];
+  };
+  const approved =
+    1 + claims.filter((claim) => claim.outcome === "approve").length;
+  const declined = claims.filter((claim) => claim.outcome === "decline").length;
+  const referred =
+    1 + claims.filter((claim) => claim.outcome === "refer").length;
   const run = `/api/swarm/runs/${run_id}`;
   const thread = await activate(request, run, CASES.held);
   const items = control.getByRole("list", { name: "Dispatch claims" });
@@ -138,7 +148,9 @@ test("starts a dispatch through the agent service and displays recorded results"
 
   await expect(control.getByText("Dispatch completed")).toBeVisible();
   await expect(
-    control.getByText("1 approved · 0 declined · 1 referred"),
+    control.getByText(
+      `${String(approved)} approved · ${String(declined)} declined · ${String(referred)} referred`,
+    ),
   ).toBeVisible();
   await expect(
     control.getByText(`Waiting for sign-off · ${CASES.held} ($1,250.00)`),

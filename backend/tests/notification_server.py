@@ -9,6 +9,7 @@ from pydantic import JsonValue
 app = FastAPI()
 observations: dict[str, list[dict[str, JsonValue]]] = {}
 dispatch_starts: list[dict[str, JsonValue]] = []
+evaluation_starts: list[dict[str, JsonValue]] = []
 
 
 @app.get("/health", operation_id="notification_health")
@@ -17,18 +18,36 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def record_start(
+    starts: list[dict[str, JsonValue]], body: dict[str, JsonValue]
+) -> dict[str, str]:
+    run_id = str(uuid4())
+    starts.append({"run_id": run_id, "request": body})
+    return {"run_id": run_id}
+
+
 @app.post("/dispatch", status_code=202, operation_id="observe_dispatch_start")
 def observe_dispatch(body: dict[str, JsonValue]) -> dict[str, str]:
     """Accept a dispatch start for the browser test to play out through the API."""
-    run_id = str(uuid4())
-    dispatch_starts.append({"run_id": run_id, "request": body})
-    return {"run_id": run_id}
+    return record_start(dispatch_starts, body)
 
 
 @app.get("/dispatch-observations", operation_id="read_dispatch_starts")
 def read_dispatch_starts() -> list[dict[str, JsonValue]]:
     """Read the dispatch requests received by the test stand-in."""
     return dispatch_starts
+
+
+@app.post("/evaluations", status_code=202, operation_id="observe_evaluation_start")
+def observe_evaluation(body: dict[str, JsonValue]) -> dict[str, str]:
+    """Accept an evaluation start for the browser test to replay through the API."""
+    return record_start(evaluation_starts, body)
+
+
+@app.get("/evaluation-observations", operation_id="read_evaluation_starts")
+def read_evaluation_starts() -> list[dict[str, JsonValue]]:
+    """Read the evaluation requests received by the test stand-in."""
+    return evaluation_starts
 
 
 @app.post("/claims/{claim_id}/resume", operation_id="observe_resume")
