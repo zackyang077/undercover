@@ -273,3 +273,7 @@ Configuration and Settings are available on the signed-in desk. Runs retain thei
 ## Improve · Phase 3
 
 Completed evaluations store Jev explanation grades, match probabilities and judge costs. Configure OPENROUTER_JUDGE_URL only to override the Decisions origin. Offline acceptance in an isolated copy without .env passed 219 Python tests (96.08%), 33 dashboard tests (94.69%) and 12 Playwright scenarios. The real SDK contacted a local Decisions stand-in. A concurrent 25-copy close with a 10-second timeout completed in under 20 seconds without double purchasing the grades.
+
+## Improve · Phase 4
+
+The backend stores one open round, its settings, approval audit and trial membership. Baseline and candidate use one evaluation and two held-out runs. Only full completed round evaluations contribute scores. The first cold evaluation measures one claim before admitting the remainder. Decimal spending comparisons accept a trial that fits the balance exactly. Checks cover the keep/rollback rule, stopped trials, mismatched datasets, held-out aggregate-only access and a stop racing the verdict. Actual OpenRouter key credit and real spend belong to hosted acceptance.

@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from backend import configuration as config
 from backend.auth import CurrentHandler, SeniorHandler
 from backend.configuration import BusinessSettings
+from backend.round_scores import averages, qualified
 from backend.storage import Store
 
 
@@ -32,7 +33,15 @@ def routes(store: Store):
         with store.connection():
             return {
                 "current": config.current(store),
-                "versions": config.history(store, "configuration"),
+                "versions": [
+                    {
+                        **row,
+                        "held_out": averages(
+                            qualified(store, row["version"], "held_out")
+                        ),
+                    }
+                    for row in config.history(store, "configuration")
+                ],
             }
 
     @router.get("/settings", operation_id="get_platform_settings")

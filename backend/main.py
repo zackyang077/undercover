@@ -13,6 +13,7 @@ from backend.auth import CurrentHandler, HandlerAuth, SeniorHandler
 from backend.configuration_routes import routes as configuration_routes
 from backend.finance import Finance
 from backend.guidance import routes as guidance_routes
+from backend.improvement_routes import routes as improvement_routes
 from backend.payout import routes as payout_routes
 from backend.runs import Runs, routes
 from backend.schemas import (
@@ -94,6 +95,7 @@ def create_app(
 
     application.include_router(guidance_routes(store))
     application.include_router(configuration_routes(store))
+    application.include_router(improvement_routes(store))
     application.include_router(payout_routes(store))
     application.include_router(financial_routes(store))
     application.include_router(work_routes(runs))

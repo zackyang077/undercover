@@ -17,6 +17,7 @@ from backend.db import swarm_active as active
 from backend.eval_sources import EvalSet, EvalSize, create_copies
 from backend.finance import now
 from backend.judge import Judge
+from backend.round_evaluations import Evaluations
 from backend.runs import Runs
 from backend.scoreboard import grade_evaluation
 from backend.storage import MAX_ATTEMPTS
@@ -120,6 +121,18 @@ class Swarm:
                 select(swarm_runs.c.run_id).where(swarm_runs.c.run_id == request.run_id)
             ):
                 return
+            trial = self.store.find(connection, "round_evaluations", request.run_id)
+            if trial:
+                Evaluations(self.store).rounds.require_open(trial["round_id"])
+                if (version, request.kind, request.dataset, request.size) != (
+                    trial["version"],
+                    "evaluation",
+                    trial["dataset"],
+                    "full",
+                ):
+                    raise HTTPException(
+                        409, "Run does not match the scheduled round evaluation"
+                    )
             if version is not None:
                 self.store.get("configuration", str(version))
                 self.store.insert(
@@ -182,6 +195,14 @@ class Swarm:
             .subquery()
         )
         with self.store.connection(write=True) as connection:
+            trial = self.store.find(connection, "round_evaluations", run_id)
+            if (
+                trial
+                and not Evaluations(self.store).can_work(trial["round_id"], run_id)[
+                    "allowed"
+                ]
+            ):
+                return {}
             row = connection.execute(
                 select(
                     claim.c.status,
@@ -323,6 +344,7 @@ class Swarm:
                     .values(snapshot=view.model_dump_json())
                 )
                 return []
+            Evaluations(self.store).record_close(connection, run_id)
             return self.cleanup_threads(connection, run_id)
 
     @staticmethod
