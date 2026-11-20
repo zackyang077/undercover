@@ -75,6 +75,7 @@ export interface ClaimDetail {
   deductible_applies_to: string[];
   approval_limit: number;
   evaluation_copy?: boolean;
+  evaluation_run_id?: string | null;
   status: QueueStatus;
   decision: Decision | null;
   sign_off: {

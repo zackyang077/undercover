@@ -24,7 +24,7 @@ When asked to implement the plan, as in "Please implement the plan for the pilot
 
 1. Build it, with tests.
 2. Check every success criterion and fix whatever fails.
-3. Tick off its verified criteria in the approved build plan (`docs/PLAN_SWARM.md` for the Swarm build) and update `docs/STATUS.md`.
+3. Tick off its verified criteria in the approved build plan (`docs/PLAN_IMPROVE.md` for the Improve build) and update `docs/STATUS.md`.
 4. Commit. The pre-commit hook runs the checks; if it fails, fix the problem and commit again.
 
 When the last phase is done, run `npm run check` and report the results.
@@ -41,20 +41,10 @@ When the last phase is done, run `npm run check` and report the results.
 - Don't open `data/evals/` unless you're asked to.
 - Everything must work on Windows: write `package.json` scripts as `uv run` commands or `.mjs` files.
 
-## Swarm acceptance
+## Improve acceptance
 
-Run the full checks without a project .env. Pytest isolates cloud credentials.
-Playwright uses a temporary SQLite backend on 8010, dashboard on 5174, and a
-notification stand-in on 8003. The stand-in reads the committed sign-off;
-Python integration tests exercise the actual resume and payment nodes.
+Run `npm run check` from an isolated checkout without a project `.env`. Use scripted language models, a local OpenRouter Decisions stand-in, a local Auth stand-in signing asymmetric tokens, temporary SQLite data and Playwright. Set `UNDERCOVER_E2E_PORT_OFFSET` if the default test ports are in use. Check the actual service with its graph and checkpoints in Python integration tests.
 
-For the hosted acceptance series, stop the applications and run `npm run seed`
-once. Start the default model and use the browser to dispatch at N=3. Stop the
-agent service partway, restart `npm run dev`, and dispatch at N=25. Record the
-stopped run, original claim threads, overlapping work, and wall time against
-total claim time. Use Supabase MCP to sample `postgres` sessions under load,
-and measure the time from a browser sign-off to visible payment. Verify the
-N=25 dispatch's tag through the Langfuse API. Run the full evaluation set at
-N=25 and the held-out tiny set at N=5. Compare the queue before and after both
-evaluations and check their Scoreboard measurements. Record all evidence under
-the relevant phase in `docs/STATUS.md`.
+For the hosted series follow phase 6 in `docs/PLAN_IMPROVE.md`. Verify the course Auth users, disabled sign-ups, asymmetric JWKS, model credentials and key credit limit. With the apps stopped, run `npm run seed` once against the intended course database. Run the default model without a MODEL_NAME override. As Dana complete two rounds through the desk, rejecting the first proposal with a reason. Check the verdicts, audit records, Langfuse sessions and baseline variation. Dispatch once at N=25. Check Marcus's permissions and Dana's sign-off on the same payout. Record the actual cost of the rounds and dispatch, and distinguish this evidence from offline fixtures. The free course route uses automated acceptance.
+
+Capture all pages in light and dark themes on a laptop viewport and have a fresh reviewer inspect the screenshots against `docs/BRAND.md`. Fix findings and verify the interactions. Record checks, artifacts and any outstanding live measurements in `docs/STATUS.md`.

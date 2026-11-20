@@ -192,6 +192,7 @@ class Store:
             deductible_applies_to=plans["deductible_applies_to"],
             approval_limit=row["approval_limit"],
             evaluation_copy=source_id is not None,
+            evaluation_run_id=row["evaluation_run_id"],
             status=row["status"],
             decision=json.loads(row["decision"]) if row["decision"] else None,
             payment=json.loads(row["payment"]) if row["payment"] else None,

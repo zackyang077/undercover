@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { HandlerIdentity } from "./HandlerIdentity";
 import { Diff } from "./Review";
 import { RemotePanel } from "./RemotePanel";
 import { usePageData } from "./usePageData";
@@ -55,7 +56,13 @@ function VersionDetails({ version }: Readonly<{ version: Version }>) {
         {fields.map(([name, value]) => (
           <div key={name}>
             <dt>{name}</dt>
-            <dd>{value}</dd>
+            <dd>
+              {name === "Proposed by" || name === "Approved by" ? (
+                <HandlerIdentity id={value} />
+              ) : (
+                value
+              )}
+            </dd>
           </div>
         ))}
       </dl>

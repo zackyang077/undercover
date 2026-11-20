@@ -79,6 +79,7 @@ def test_copy_detail_keeps_seed_history_and_refuses_sign_off(tmp_path, monkeypat
         copied_url = f"/api/claims/{copy_id}"
         copied = client.get(copied_url).json()
         assert copied["evaluation_copy"]
+        assert copied["evaluation_run_id"] == "isolation-test"
         assert copied["claim"]["claim_id"] == copy_id
         assert copied["claim"]["summary"] == original_result["claim"]["summary"]
         assert copied["decision"] is None

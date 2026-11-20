@@ -70,12 +70,20 @@
 
 ## 6. 统一页面体验，做离线回归和限定的实跑
 
-- [ ] 依 `docs/BRAND.md` 检查登录、队列、赔案、Scoreboard、评估详情、Configuration、Improvement 和 Settings 等全部页面。在笔记本尺寸及两种主题核对标题用途、当前导航、间距、字体、表格数字右对齐及单位、状态文字和颜色、键盘操作、加载／空／错误的下一步提示。轮询保留焦点、滚动位置和审批输入；更改 agent 或设置前用应用自身的确认对话框，取消时无写入。
-- [ ] 在隔离副本移除项目 `.env` 后运行 `npm run check`，通过 Ruff、Pyright、pytest（覆盖率 ≥80%）、ESLint、Prettier、tsc、Vitest（语句覆盖率 ≥80%）和 Playwright。模型、judge、Auth、agent 服务均使用对应测试替身或本地夹具。E2E 真正登录，借测试 API 推进提案，再从页面审批、改业务设置、切主题并刷新。保留现有赔案浏览、派单、评估和支付回归；启动脚本兼容 macOS 和 Windows。
+- [x] 依 `docs/BRAND.md` 检查登录、队列、赔案、Scoreboard、评估详情、Configuration、Improvement 和 Settings 等全部页面。在笔记本尺寸及两种主题核对标题用途、当前导航、间距、字体、表格数字右对齐及单位、状态文字和颜色、键盘操作、加载／空／错误的下一步提示。轮询保留焦点、滚动位置和审批输入；更改 agent 或设置前用应用自身的确认对话框，取消时无写入。
+- [x] 在隔离副本移除项目 `.env` 后运行 `npm run check`，通过 Ruff、Pyright、pytest（覆盖率 ≥80%）、ESLint、Prettier、tsc、Vitest（语句覆盖率 ≥80%）和 Playwright。模型、judge、Auth、agent 服务均使用对应测试替身或本地夹具。E2E 真正登录，借测试 API 推进提案，再从页面审批、改业务设置、切主题并刷新。保留现有赔案浏览、派单、评估和支付回归；启动脚本兼容 macOS 和 Windows。
 - [ ] 实跑前核对 lab 设置（3 名已建的 Auth 用户、关闭注册、公开签名密钥、`HANDLER_PASSWORD` 和 key 信用额度）。确认课程目标库并停服务，仅在这组实跑前执行一次 `npm run seed`；它会重建目标库的 UnderCover 业务数据，将配置与 recipe 归 v1、清空回合。随后 `npm run dev`，用默认模型和 Playwright MCP 登录 Dana，连续跑两个回合。首个提案带理由拒绝，批准下一次及之后各提案。记录过程、版本 diff、每轮留出集前后指标、裁决与费用。用 Langfuse API 按回合核对 session 和标签。
 - [ ] 对 v1 两次留出运行列出四项指标的原始值、实际差值、noise 与 tolerance。准确率用百分点、grade 用分、费用与时间用相对变化。随后仅发起一次 N=25 的当前版本 dispatch：Marcus 在页面与后端均无法签批待付赔案或更改设置；Dana 对同一笔赔案签批，验证付款一次及经办人。列出两轮加派单的实付总额及分类，核对默认 Luna 的实跑目标低于 $1。
-- [ ] 保存每一页的明暗截图，交由一位未参与页面实现的新子代理，以资深产品设计师身份按品牌及需求第 8 点集中评审一次；修正发现并复验截图。更新 `docs/SPEC.md`、`docs/TECH_STACK.md`、`docs/PROCESS.md`、`docs/CODE_STANDARDS.md`、`docs/STATUS.md` 和 `data/README.md`。本分支规范现有 8 条，按 brief 第 7、13、14 条的意图明确 agent 分工、专用 client 与目标式指令。交付记录分别列出离线检查、实跑结果和无法验证的项。
+- [x] 保存每一页的明暗截图，交由一位未参与页面实现的新子代理，以资深产品设计师身份按品牌及需求第 8 点集中评审一次；修正发现并复验截图。更新 `docs/SPEC.md`、`docs/TECH_STACK.md`、`docs/PROCESS.md`、`docs/CODE_STANDARDS.md`、`docs/STATUS.md` 和 `data/README.md`。本分支规范现有 8 条，按 brief 第 7、13、14 条的意图明确 agent 分工、专用 client 与目标式指令。交付记录分别列出离线检查、实跑结果和无法验证的项。
 
 ## 评审时的测试基线
 
-2026-11-20，在包含当前 Scoreboard 源码且无项目 `.env` 的临时副本运行现有检查。Python 179 项通过，覆盖率 95.07%；Vitest 25 项通过，语句覆盖率 93.76%。`npm run check` 到 Playwright 时默认测试端口已被占用。在副本改用三个空闲端口后单独运行 `npm run e2e`，10 个场景全部通过。以上是实施前的结果，本计划的功能验收均待执行。
+2026-11-20，在包含当前 Scoreboard 源码且无项目 `.env` 的临时副本运行现有检查。Python 179 项通过，覆盖率 95.07%；Vitest 25 项通过，语句覆盖率 93.76%。`npm run check` 到 Playwright 时默认测试端口已被占用。在副本改用三个空闲端口后单独运行 `npm run e2e`，10 个场景全部通过。以上数字仅记录实施前的测试基线。
+
+## 实施后的验收记录（2026-11-20）
+
+29 项验收中已验证 27 项。在无项目 `.env` 的隔离副本，`npm run check` 退出码为 0。pytest 252 项通过，覆盖率 95.48%。Vitest 38 项通过，语句覆盖率 94.79%。Playwright 13 项通过。macOS 上实际启动了 Dashboard、后端和 Agent 服务并验证代理与鉴权。Windows 启动脚本已静态核对，尚无 Windows 主机运行记录。
+
+独立设计评审检查了 10 个页面及状态的明暗截图，共 20 张。已修复评估副本返回所属评估的导航、回合状态及展开提示、Scoreboard 表格排版、空活动记录的引导和经办人姓名显示，并重新截图。
+
+剩余两项需要连接课程环境。当前缺少 `VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY` 和 `HANDLER_PASSWORD`，且已设置 `MODEL_NAME`。本次验收使用本地替身，未重置课程数据库或产生模型费用。默认 Luna 的两轮改进、Langfuse 会话核对、留出集实测波动、一次 N=25 派单及其权限、付款与费用验证仍待执行。

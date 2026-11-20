@@ -35,10 +35,20 @@ When the service has already observed an interrupt, it checks the saved
 sign-off and matching thread before issuing the resume command. After a restart
 it discovers the thread and reads its persisted checkpoint.
 
-The claim model defaults to `openai/gpt-6-luna` on OpenRouter with low reasoning.
+The initial claim configuration uses `openai/gpt-6-luna` on OpenRouter with low reasoning.
 `MODEL_NAME` selects an override with no reasoning effort set. The development
 launcher supplies `OPENROUTER_API_KEY` and optional Langfuse credentials.
 The backend seeds held-out sources and handler references into dedicated
 tables. Its Scoreboard read path joins the references to claim copies and scores
 them. The agent reads copy evidence through the same claim tools. Automated
 tests use temporary databases, scripted models and local HTTP stand-ins.
+
+## Sign-in, explanations and improvements
+
+The dashboard authenticates with Supabase Auth using the project's URL and publishable key. FastAPI verifies asymmetric bearer tokens against the project's JWKS, requires audience `authenticated` and looks up the handler by email. Senior permissions come from the business record. Normal agent-service writes use the internal service routes.
+
+The backend keeps immutable configurations, recipes and review history alongside business records. The service pins the model, effort and instructions for each run. Saved decisions carry their approval limit. The dashboard stores only the appearance preference locally as a platform setting.
+
+The backend calls Jev through the OpenRouter Decisions SDK at evaluation close. It reserves copies before calling the judge in parallel, with a ten-second timeout and retries disabled. It persists scores, grade letters, match probabilities and reported judge cost. `MODEL_NAME` selects a single allowed model with default effort and disables judging.
+
+The improver uses LangChain create_agent and HumanInTheLoopMiddleware. Each round has a unique thread, a synchronous PostgresSaver on the shared session pool (SQLite locally) and one Langfuse session. A review resumes a checkpoint. Active evaluation workers check round admission before starting claims and model calls. Traces retain the claim session and carry the run and round tags. The backend applies the business thresholds to complete whole-set round trials. The Scoreboard also accepts manual evaluations on isolated copies.

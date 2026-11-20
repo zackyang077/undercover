@@ -208,6 +208,12 @@ test("evaluates the held-out tiny set and shows persisted comparisons without ch
   await expect(heading).toContainText(held);
   await expect(heading).toContainText("Evaluation copy");
   await expect(
+    page.getByRole("region", { name: "Queue overview" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "Back to evaluation" }),
+  ).toHaveAttribute("href", `?evaluation=${run_id}`);
+  await expect(
     page.getByText("Approval held for sign-off", { exact: true }),
   ).toBeVisible();
   await expect(

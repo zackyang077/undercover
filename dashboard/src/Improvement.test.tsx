@@ -7,6 +7,8 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { HandlerNames } from "./handler-names";
+import { people } from "../test-data";
 import { Improvement } from "./Improvement";
 import type { ImprovementView, Round, Proposal } from "./improvement-types";
 
@@ -99,6 +101,7 @@ it("delivers a rejection reason only after confirmation and preserves it while p
   vi.stubGlobal("fetch", fetch);
   render(<Improvement writable />);
   const reasonInput = await screen.findByLabelText("Rejection reason");
+  reasonInput.focus();
   const reject = screen.getByRole("button", { name: "Reject proposal" });
   expect(reject).toHaveProperty("disabled", true);
   fireEvent.change(reasonInput, {
@@ -115,6 +118,7 @@ it("delivers a rejection reason only after confirmation and preserves it while p
     },
     { timeout: 2500 },
   );
+  expect(document.activeElement).toBe(reasonInput);
   expect(reasonInput).toHaveProperty(
     "value",
     "Explain how the rule generalizes.",
@@ -205,7 +209,13 @@ it("charts the version tried and shows its decisions, costs, and frozen objectiv
       Promise.resolve(Response.json({ ...view, rounds: [completed] })),
     ),
   );
-  render(<Improvement writable />);
+  render(
+    <HandlerNames.Provider
+      value={new Map(people.map((person) => [person.handler_id, person]))}
+    >
+      <Improvement writable />
+    </HandlerNames.Provider>,
+  );
   expect(
     await screen.findByRole("img", {
       name: "Held-out accuracy and grade by configuration version",
@@ -218,6 +228,7 @@ it("charts the version tried and shows its decisions, costs, and frozen objectiv
   expect(screen.getByText(/Required accuracy 60%/)).toBeDefined();
   fireEvent.click(screen.getByText("Review decisions (1)"));
   expect(screen.getByText("Approved")).toBeDefined();
+  expect(screen.getAllByText("Dana Whitfield").length).toBeGreaterThan(0);
 });
 
 it("starts a round after confirmation and reports a busy service", async () => {

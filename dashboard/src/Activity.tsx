@@ -20,18 +20,27 @@ function SectionRead({ text }: Readonly<{ text: string }>) {
   );
 }
 
-export function Activity({ runs }: Readonly<{ runs: Run[] }>) {
+export function Activity({
+  runs,
+  decided = false,
+}: Readonly<{ runs: Run[]; decided?: boolean }>) {
   return (
     <section className="panel activity" aria-label="Agent activity">
       <div className="section-heading">
         <h2>Agent activity</h2>
-        <span className="live-dot" />
+        {runs.some((run) => run.status === "running") && (
+          <span className="live-dot" aria-label="Agent running" />
+        )}
       </div>
       <p className="muted">
         Follow the evidence, decisions, and payment steps.
       </p>
       {runs.length === 0 && (
-        <p className="empty">Activity will appear when the agent starts.</p>
+        <p className="empty">
+          {decided
+            ? "No activity was recorded for this decision."
+            : "Activity will appear when the agent starts."}
+        </p>
       )}
       {runs.map((run, index) => (
         <div key={run.thread_id}>

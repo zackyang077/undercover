@@ -124,6 +124,7 @@ class ClaimQueries:
                 payment.c.body.label("payment"),
                 limit.label("approval_limit"),
                 evaluation_copies.c.source_id.label("evaluation_source_id"),
+                evaluation_copies.c.run_id.label("evaluation_run_id"),
                 status,
             )
             .select_from(full)

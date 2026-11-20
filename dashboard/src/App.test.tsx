@@ -47,6 +47,7 @@ function setup(
           payout_amount: detail.decision?.payout_amount ?? null,
           payment_status: detail.payment ? "paid" : "unpaid",
         }));
+      else if (url === "/api/handlers") body = people;
       else if (url === "/api/policy-wording") body = wording;
       else if (url === "/api/configuration")
         body = {
@@ -349,4 +350,36 @@ it("explains a held payout to a handler without sign-off permission", async () =
     await screen.findByText(/A senior handler must sign off/),
   ).toBeDefined();
   expect(screen.queryByRole("button", { name: "Sign off" })).toBeNull();
+});
+
+it("keeps a direct evaluation copy in its read-only scoreboard context", async () => {
+  setup();
+  detail.evaluation_copy = true;
+  detail.evaluation_run_id = "run-owned";
+  detail.decision = approved;
+  detail.status = "decided";
+  window.history.replaceState(null, "", "?claim=EVAL-test");
+  render(<App handler={people[0]} />);
+  expect(
+    await screen.findByRole("heading", { name: "Evaluation claim" }),
+  ).toBeDefined();
+  expect(
+    await screen.findByRole("link", { name: "Back to evaluation" }),
+  ).toHaveProperty("search", "?evaluation=run-owned");
+  expect(
+    screen
+      .getByRole("button", { name: "Scoreboard" })
+      .getAttribute("aria-current"),
+  ).toBe("page");
+  expect(screen.queryByRole("region", { name: "Queue overview" })).toBeNull();
+  expect(
+    screen.queryByRole("complementary", { name: "Claims queue" }),
+  ).toBeNull();
+  expect(
+    screen.getByText("No activity was recorded for this decision."),
+  ).toBeDefined();
+  expect(screen.queryByLabelText("Agent running")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Scoreboard" }));
+  fireEvent.click(screen.getByRole("button", { name: "Claims" }));
+  expect(window.location.search).toBe("?claim=CLM-1001");
 });

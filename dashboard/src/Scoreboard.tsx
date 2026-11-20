@@ -233,7 +233,10 @@ function EvaluationSettings({ run }: Readonly<{ run: EvaluationRun }>) {
   return (
     <>
       <p>
-        <strong>{label(run.status)}</strong> · {run.concurrency} claim agents
+        <strong className={`status run-state ${run.status}`}>
+          {label(run.status)}
+        </strong>{" "}
+        · {run.concurrency} claim agents
       </p>
       <dl className="facts">
         <div>
@@ -364,7 +367,7 @@ function EvaluationDetail({ run }: Readonly<{ run: EvaluationRun }>) {
       </section>
       <section aria-label="Evaluation claims">
         <h2>Claim comparisons</h2>
-        <ul className="queue-list">
+        <ul className="evaluation-list">
           {run.claims.map((claim) => (
             <Comparison
               key={claim.claim_id}
@@ -381,7 +384,7 @@ function EvaluationDetail({ run }: Readonly<{ run: EvaluationRun }>) {
 function History({ runs }: Readonly<{ runs: EvaluationRun[] }>) {
   if (!runs.length) return <p className="empty">No evaluations yet.</p>;
   return (
-    <ul className="queue-list" aria-label="Evaluations">
+    <ul className="evaluation-list" aria-label="Evaluations">
       {runs.map((run) => (
         <li key={run.run_id} className="panel queue-control">
           <h2>

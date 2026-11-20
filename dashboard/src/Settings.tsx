@@ -2,6 +2,7 @@ import { useState, type SubmitEvent } from "react";
 import { api, message, money } from "./api";
 import { RemotePanel } from "./RemotePanel";
 import { usePageData } from "./usePageData";
+import { HandlerIdentity } from "./HandlerIdentity";
 import { Confirm } from "./Review";
 import { chooseTheme, preferredTheme, type Theme } from "./theme";
 
@@ -308,7 +309,10 @@ export function Settings({ writable }: Readonly<{ writable: boolean }>) {
           <ol className="settings-history">
             {history.map((item, index) => (
               <li key={item.created_at + String(index)}>
-                <strong>{item.handler_id}</strong> ·{" "}
+                <strong>
+                  <HandlerIdentity id={item.handler_id} />
+                </strong>{" "}
+                ·{" "}
                 <time dateTime={item.created_at}>
                   {new Date(item.created_at).toLocaleString("en-US")}
                 </time>

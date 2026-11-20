@@ -3,13 +3,22 @@
 Run `uv sync`, `npm install`, and `npm run dev` from the repository root. The
 dashboard listens on 5173, the business API on 8000, and the agent service on
 8002. Start live-queue dispatches from the Claims desk and evaluations from
-Scoreboard. Use `uv run -m agent CLM-1001` for a single claim.
+Scoreboard. For a single claim use `uv run --env-file .env -m agent CLM-1001`
+and sign in with a handler email and password.
 
 Development reads `.env` when present. Set `DATABASE_URL` to the Supabase
 session pooler or use `UNDERCOVER_DB` for a local SQLite file. SQLite defaults
 to `undercover.sqlite3` and saves checkpoints in a sibling file ending in
 `.checkpoints.sqlite3`. Live model calls require `OPENROUTER_API_KEY`.
 Set `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_BASE_URL` for traces.
+
+For development, configure `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_PUBLISHABLE_KEY` in the project-root `.env`. Use the three
+pre-created course accounts and turn off public sign-up as described in
+`labs/week2day5.ipynb`. `HANDLER_PASSWORD` supplies the password for the
+hosted browser acceptance. The default paid route uses a capped OpenRouter
+key, Luna and Jev. A `MODEL_NAME` override selects a single model at default
+effort and disables Jev. Use offline acceptance on that course route.
 
 Stop the application before reseeding. `npm run seed` rebuilds the configured
 hosted `undercover` data, including dispatch and evaluation records. For a
@@ -281,3 +290,27 @@ The backend stores one open round, its settings, approval audit and trial member
 ## Improve · Phase 5
 
 Start an Improvement round as Dana. The service reserves each model call, releases dispatch admission during review and restores pending proposals from synchronous checkpoints. In full service integration tests using SQLite, scripted models and a stub judge, a round ran three baseline and three candidate trials, received a rejection, resumed approvals after service restarts, rolled back the candidate and updated the recipe. The free-mode scenario ran without judge calls and recorded zero cost. All 252 Python tests and 37 dashboard tests passed. Chromium also exercised signed-in proposal approval and stopping a round through the real backend with an agent stand-in.
+
+## Improve · Phase 6
+
+On 2026-11-20, `npm run check` passed in an isolated copy without a project
+`.env`. Ruff, Pyright, ESLint, Prettier and TypeScript checks passed. Pytest
+passed 252 tests with 95.48% coverage, Vitest passed 38 with 94.79% statement
+coverage, and Playwright passed all 13 browser tests. All providers were local
+stand-ins. On macOS, the three development services started and served the
+dashboard, API proxy, queue and authenticated routes. The Windows startup
+scripts received a static review only.
+
+An independent design reviewer examined the 20 light and dark screenshots
+covering 10 pages and states at a 1280 × 900 viewport. The fixes link an
+evaluation copy back to its evaluation, clarify round status and disclosure
+controls, align Scoreboard columns, guide handlers when activity is empty and
+show handler names in the audit trail. The revised screens were captured again.
+
+27 of 29 criteria are verified. The hosted series is pending because the
+project environment lacks `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
+and `HANDLER_PASSWORD`. `MODEL_NAME` is set and must be unset for the default
+Luna run. No hosted reseed or paid run occurred. The two real rounds, their
+Langfuse traces and held-out variability, the N=25 dispatch, its payout
+sign-off and actual total cost remain to be measured. The two open checkboxes
+in `docs/PLAN_IMPROVE.md` give the sequence for completing this acceptance.

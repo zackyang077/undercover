@@ -121,6 +121,23 @@ function useClaimDetail(
   return { detail, fetchError };
 }
 
+function CopyReturn({ owner }: Readonly<{ owner: string | null | undefined }>) {
+  return (
+    <p className="copy-return">
+      <a
+        className="queue-current"
+        href={
+          owner
+            ? "?evaluation=" + encodeURIComponent(owner)
+            : "?page=scoreboard"
+        }
+      >
+        {owner ? "Back to evaluation" : "Back to Scoreboard"}
+      </a>
+    </p>
+  );
+}
+
 export function Workspace({
   claimId,
   handler,
@@ -202,6 +219,7 @@ export function Workspace({
   );
   return (
     <div className="workspace">
+      {evaluationCopy && <CopyReturn owner={detail.evaluation_run_id} />}
       <section className="panel claim-heading">
         <div>
           <span className="eyebrow mono">{claimId}</span>
@@ -242,7 +260,7 @@ export function Workspace({
         <div>
           <Evidence detail={detail} wording={wording} />
         </div>
-        <Activity runs={runs} />
+        <Activity runs={runs} decided={decision !== null} />
       </div>
     </div>
   );

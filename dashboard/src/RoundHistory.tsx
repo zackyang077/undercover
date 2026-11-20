@@ -1,3 +1,4 @@
+import { HandlerIdentity } from "./HandlerIdentity";
 import { Diff } from "./Review";
 import { ComparisonTable } from "./RoundScores";
 import {
@@ -69,10 +70,9 @@ function SettingsSnapshot({
 function RoundAudit({ round: r }: Readonly<{ round: Round }>) {
   return (
     <div className="round-audit">
-      <p>
-        {r.reason ||
-          (r.proposal?.args.reason ?? "No configuration change proposed.")}
-      </p>
+      {(r.reason || r.proposal?.args.reason) && (
+        <p>{r.reason || r.proposal?.args.reason}</p>
+      )}
       <p>
         <strong>{r.verdict ? roundVerdict(r) : roundStage(r)}</strong>
         {(r.stop_reason ?? r.why) && " · "}
@@ -82,14 +82,19 @@ function RoundAudit({ round: r }: Readonly<{ round: Round }>) {
         <div>
           <dt>Started by</dt>
           <dd>
-            {r.started_by} · {dateLabel(r.started_at)}
+            <HandlerIdentity id={r.started_by} /> · {dateLabel(r.started_at)}
           </dd>
         </div>
         <div>
-          <dt>{r.status === "stopped" ? "Stopped" : "Finished"}</dt>
+          <dt>Ended</dt>
           <dd>
             {r.ended_at ? dateLabel(r.ended_at) : "In progress"}
-            {r.stopped_by && ` · ${r.stopped_by}`}
+            {r.stopped_by && (
+              <>
+                {" "}
+                · <HandlerIdentity id={r.stopped_by} />
+              </>
+            )}
           </dd>
         </div>
         <div>
@@ -126,7 +131,8 @@ function RoundAudit({ round: r }: Readonly<{ round: Round }>) {
                 <strong>
                   {review.choice === "approve" ? "Approved" : "Rejected"}
                 </strong>{" "}
-                · {review.handler_id} · {dateLabel(review.created_at)}
+                · <HandlerIdentity id={review.handler_id} /> ·{" "}
+                {dateLabel(review.created_at)}
                 {review.reason && <p>{review.reason}</p>}
                 {typeof review.proposal === "object" && (
                   <>
@@ -156,9 +162,15 @@ export function Rounds({ rounds }: Readonly<{ rounds: Round[] }>) {
               <span>
                 <strong>Round {rounds.length - i}</strong> ·{" "}
                 {dateLabel(r.started_at)}
+                {!r.ended_at && " · Current round"}
               </span>{" "}
               <span>
-                {roundVerdict(r)} · {cost(r.costs.total)}
+                <span
+                  className={`status round-status ${r.verdict ?? r.status}`}
+                >
+                  {roundVerdict(r)}
+                </span>{" "}
+                · {cost(r.costs.total)}
               </span>
             </summary>
             <RoundAudit round={r} />
@@ -185,7 +197,7 @@ export function Recipes({
             Recipe {r.version} · {r.reason}
           </summary>
           <p>
-            {r.approved_by} · {dateLabel(r.created_at)}
+            <HandlerIdentity id={r.approved_by} /> · {dateLabel(r.created_at)}
           </p>
           {r.version > 1 && <Diff lines={r.diff} />}
           <pre className="instruction-body">{r.recipe}</pre>

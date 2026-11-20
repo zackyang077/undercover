@@ -4,11 +4,12 @@ The data behind UnderCover Travel Insurance, a fictional insurer. Everything her
 
 ## The insurer's systems
 
-- `company.json`: company settings, including the $1,000 payout approval limit.
+- `company.json`: company settings, including the initial $1,000 payout approval limit.
 - `plans.json`: the three plans (Economy, Premium, First) with their limits, waiting periods and deductibles, and the three add-ons.
 - `policies.json`: one policy per trip, with the plan, the add-ons, the purchase date, the trip and the travelers.
 - `customers.json`: contact details and claim history, with the date and a one line summary of each earlier claim. This is personal data.
-- `handlers.json`: the claims handlers.
+- `handlers.json`: the handler directory, email identities and over-limit approval authority. Dana is the senior handler.
+- `improvement.json`: initial objectives, noise, tolerance, round budget and concurrency, plus the read-only catalog of allowed models with numeric input/output prices per million tokens.
 - `claims.json`: the claims queue, twenty-five claims. Each has the customer's story, the items claimed and the supporting documents as text.
 
 ## The documents
@@ -24,6 +25,8 @@ The data behind UnderCover Travel Insurance, a fictional insurer. Everything her
 The queue is the development set and the held-out claims are the test set. Nothing is trained on either.
 
 Every decision also carries a few tags. `difficulty` is `routine`, `hard` (the wording settles it and it stretches a small model) or `manual` (it needs something the prompt does not hold, listed in `needs`: the claims manual, the customer's history or both). `failure_class` groups the hard claims that one rule should fix. `tone` is `plain`, `amusing` or `nod`. `tiny` marks a subset of five claims in each set, one of each kind, which fits inside a free model's daily allowance.
+
+The backend loads both sets of reasons and references for the explanation judge. The improver receives claim-level examples from the evaluation set and aggregate measurements for the held-out set.
 
 The labs define `get_sample_data(tiny=False, held_out=False)`, which returns the claims of either set with their decisions.
 

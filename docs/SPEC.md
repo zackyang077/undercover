@@ -1,4 +1,4 @@
-# The claims pilot and harness
+# UnderCover claims operations
 
 From the head of claims operations at UnderCover Travel Insurance.
 
@@ -19,12 +19,14 @@ Our goal is to handle claims straight through, as accurately as our handlers do.
 
 ## What the team needs to see
 
-- The queue, with where each claim stands: waiting, in progress, waiting for sign-off or decided.
+- The signed-in handler's queue, with where each claim stands: waiting, in progress, waiting for sign-off or decided.
 - Each claim in full, with the agent's decision and its reasons.
 - What the agent is doing on a claim while it works, step by step.
 - Each dispatch's claims, progress, model cost, elapsed time and outcome summary.
 - A Scoreboard with evaluations, their accuracy, cost and time, and each claim's decision alongside the handler's.
-- The agent's instructions, read only.
+- Configuration history with instructions, model, reasoning effort, who approved a change and the held-out scores.
+- Improvement rounds with their proposals, diffs, reviews, costs and verdicts.
+- Platform settings and the approval limit that applies to new decisions.
 
 ## Working the queue
 
@@ -51,10 +53,16 @@ claims from either. A held payout on an evaluation copy counts as finished.
 
 ## Rules
 
-- A payout over $1,000 needs a handler's sign-off. The agent can approve such a claim, but the payment waits until a handler signs off. The system must block the payment until then, even if the agent tries to pay.
+- A payout above the limit in force when the decision was recorded needs a senior handler's sign-off. The initial limit is $1,000. The agent can approve such a claim, but the payment waits until a handler signs off. The system must block the payment until then, even if the agent tries to pay.
 - Decisions follow the policy wording and claims manual; the wording takes precedence.
-- Our handlers' own decisions on these claims are in `data/evals/`. We use them to check the agent's work. The agent must never see them.
+- Our handlers' own decisions on these claims are in `data/evals/`. We use them to check the agent's work. The claim agent cannot access these decisions. The improver sees selected examples on the evaluation set and only aggregate scores on the held-out set.
 - Amounts are in US dollars.
+
+## Improving the claim agent
+
+Handlers sign in with their email and password to review the desk. Dana can also sign over-limit payouts, change business settings, start or stop a round and review proposals. Marcus and Priya can start dispatches and manual evaluations and inspect the results.
+
+A round works to its starting settings. It fills missing baseline evaluations and tests an approved candidate once on the evaluation set and twice on the held-out set. Jev grades each explanation against the handler's grounds and reference. The Scoreboard lists these grades and costs. The backend promotes a candidate when the held-out averages meet the objectives, improve beyond noise on at least one measure and stay within tolerance on every measure. Recipe changes also require a handler's approval.
 
 ## Our records
 
@@ -62,6 +70,5 @@ Everything is in `data/`, described in `data/README.md`: the claims queue, the p
 
 ## Not for now
 
-- No sign-in. Everyone who uses the screens sees everything.
 - No real payments.
 - No messages to customers.
