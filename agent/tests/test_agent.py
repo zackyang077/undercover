@@ -5,7 +5,6 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, ToolMessage
@@ -14,6 +13,7 @@ from sqlalchemy import select
 from agent import claim_graph, main, tracing
 from backend.db import model_usage, work_segments
 from backend.main import create_app
+from backend.tests.handler_session import SignedClient
 from backend.tests.test_finance import decision
 
 
@@ -40,7 +40,7 @@ def replies(amount: float = 420, outcome: str = "approve"):
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("UNDERCOVER_DB", str(tmp_path / "agent.sqlite3"))
-    with TestClient(create_app(tmp_path / "agent.sqlite3")) as client:
+    with SignedClient(create_app(tmp_path / "agent.sqlite3")) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         yield client
 
@@ -143,9 +143,7 @@ def test_claim_traces_keep_attempt_session_and_tag_executing_run(client, monkeyp
     monkeypatch.setattr(tracing, "CallbackHandler", Recorder)
     stub = StubModel(messages=iter(replies(1250)))
     main.run("CLM-1001", "first", stub, run_id="dispatch-1")
-    client.post(
-        "/api/claims/CLM-1001/sign-off", json={"handler_id": "HND-01"}
-    ).raise_for_status()
+    client.post("/api/claims/CLM-1001/sign-off", json={}).raise_for_status()
     main.run("CLM-1001", "first", stub, run_id="dispatch-2")
     main.run("CLM-1001", "next", stub)
     assert traces == [
@@ -330,9 +328,7 @@ def test_work_segments_and_usage_follow_each_invocation(client, monkeypatch):
         main.run(claim, thread, stub, run_id="next-dispatch") == "Waiting for sign-off"
     )
     seconds += 3600
-    client.post(
-        f"/api/claims/{claim}/sign-off", json={"handler_id": "HND-01"}
-    ).raise_for_status()
+    client.post(f"/api/claims/{claim}/sign-off", json={}).raise_for_status()
     assert main.run(claim, thread) == "approve: $1250.00"
 
     first_report, replay, next_report = usage
@@ -423,7 +419,7 @@ def test_signed_claim_resumes_once_with_same_thread(client):
     assert main.run("CLM-1001", thread, actor) == "Waiting for sign-off"
     claim = "/api/claims/CLM-1001"
     assert client.get(claim).json()["payment"] is None
-    client.post(f"{claim}/sign-off", json={"handler_id": "HND-01"}).raise_for_status()
+    client.post(f"{claim}/sign-off", json={}).raise_for_status()
     no_more_model_calls = StubModel(messages=iter([]))
     assert main.run("CLM-1001", thread, no_more_model_calls) == "approve: $1250.00"
     paid = client.get(claim).json()["payment"]
@@ -464,7 +460,7 @@ def test_existing_approval_can_resume_without_a_checkpoint(client):
     client.post(f"{path}/decision", json=decision(1500)).raise_for_status()
     main.run("CLM-1001", "historical", StubModel(messages=iter([])))
     assert client.get(path).json()["payment"] is None
-    client.post(f"{path}/sign-off", json={"handler_id": "HND-01"}).raise_for_status()
+    client.post(f"{path}/sign-off", json={}).raise_for_status()
     main.run("CLM-1001", "historical", StubModel(messages=iter([])))
     assert client.get(path).json()["payment"]["amount"] == 1500
 
@@ -537,7 +533,7 @@ def test_signoff_committed_while_decision_is_returning(client, monkeypatch):
         if url == f"{path}/decision" and method == "POST":
             # The decision response still reports waiting while sign-off commits.
             assert result["status"] == "waiting_sign_off"
-            request("POST", f"{path}/sign-off", {"handler_id": "HND-01"})
+            request("POST", f"{path}/sign-off", {})
         return result
 
     monkeypatch.setattr(main, "request", fast_handler)

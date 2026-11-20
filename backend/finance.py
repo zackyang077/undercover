@@ -15,7 +15,6 @@ from backend.schemas import (
     DecisionInput,
     PaymentInput,
     Settlement,
-    SignOffInput,
 )
 from backend.storage import Store
 
@@ -104,9 +103,9 @@ class Finance:
                 raise HTTPException(409, "A different final decision already exists")
         return self.store.detail(claim_id)
 
-    def sign_off(self, claim_id: str, request: SignOffInput) -> dict[str, JsonValue]:
+    def sign_off(self, claim_id: str, handler_id: str) -> dict[str, JsonValue]:
         with self.store.connection(write=True) as connection:
-            facts = self.payment_facts(connection, claim_id, request.handler_id)
+            facts = self.payment_facts(connection, claim_id, handler_id)
             if facts["claims"].get("evaluation_copy"):
                 raise HTTPException(403, "Evaluation copies cannot be signed off")
             handler = facts["handlers"]
@@ -122,7 +121,7 @@ class Finance:
             ):
                 raise HTTPException(409, "This payout does not need sign-off")
             record = {
-                "handler_id": request.handler_id,
+                "handler_id": handler_id,
                 "handler_name": handler["name"],
                 "created_at": now(),
             }

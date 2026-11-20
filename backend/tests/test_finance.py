@@ -1,17 +1,17 @@
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import event
 
 from backend.main import create_app
+from backend.tests.handler_session import MARCUS, SignedClient, bearer
 
 CLAIM = "/api/claims/CLM-1001"
 
 
 @pytest.fixture
 def client(tmp_path):
-    with TestClient(create_app(tmp_path / "finance.sqlite3")) as client:
+    with SignedClient(create_app(tmp_path / "finance.sqlite3")) as client:
         yield client
 
 
@@ -38,20 +38,14 @@ def test_boundary_sign_off_and_payment(client, amount):
         assert client.get(CLAIM).json()["status"] == "waiting_sign_off"
         assert (
             client.post(f"{CLAIM}/sign-off", json={"handler_id": "missing"}).status_code
-            == 404
+            == 422
         )
-        assert (
-            client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}).status_code
-            == 200
-        )
+        assert client.post(f"{CLAIM}/sign-off", json={}).status_code == 200
         signed = client.get(CLAIM).json()
         assert signed["payment"] is None
         assert signed["status"] == "in_progress"
         assert client.get("/api/claims").json()[0]["status"] == "in_progress"
-        assert (
-            client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}).status_code
-            == 409
-        )
+        assert client.post(f"{CLAIM}/sign-off", json={}).status_code == 409
         response = client.post(f"{CLAIM}/payment", json={"amount": amount})
     assert response.status_code == 200
     detail = response.json()
@@ -76,10 +70,7 @@ def test_nonpayable_outcomes(client, outcome):
     )
     assert client.get(CLAIM).json()["status"] == "decided"
     assert client.post(f"{CLAIM}/payment", json={"amount": 1}).status_code == 409
-    assert (
-        client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}).status_code
-        == 409
-    )
+    assert client.post(f"{CLAIM}/sign-off", json={}).status_code == 409
 
 
 def test_invalid_and_concurrent_payment(client):
@@ -111,7 +102,7 @@ def test_invalid_and_concurrent_payment(client):
 
 def test_ineligible_handler_and_persistence(tmp_path):
     app = create_app(tmp_path / "persist.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         client.post(f"{CLAIM}/decision", json=decision(1250))
         store = app.state.store
         handler = store.get("handlers", "HND-02")
@@ -119,12 +110,14 @@ def test_ineligible_handler_and_persistence(tmp_path):
         with store.connection() as connection:
             store.update(connection, "handlers", "HND-02", handler)
         assert (
-            client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-02"}).status_code
+            client.post(
+                f"{CLAIM}/sign-off", json={}, headers=bearer(MARCUS)
+            ).status_code
             == 403
         )
-        client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"})
+        client.post(f"{CLAIM}/sign-off", json={})
         client.post(f"{CLAIM}/payment", json={"amount": 1250})
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         detail = client.get(CLAIM).json()
         assert detail["decision"]["payout_cents"] == 125000
         assert detail["sign_off"]["handler_id"] == "HND-01"
@@ -159,13 +152,13 @@ def test_concurrent_decisions_replay_without_changing_business_fields(client):
 
 def test_payment_replay_after_response_loss_and_restart(tmp_path):
     path = tmp_path / "lost-response.sqlite3"
-    with TestClient(create_app(path)) as client:
+    with SignedClient(create_app(path)) as client:
         client.post(f"{CLAIM}/decision", json=decision(1250)).raise_for_status()
-        signed = client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}).json()
+        signed = client.post(f"{CLAIM}/sign-off", json={}).json()
         client.post(f"{CLAIM}/payment", json={"amount": 1250}).raise_for_status()
         first = client.get(CLAIM).json()
     reopened = create_app(path)
-    with TestClient(reopened) as client:
+    with SignedClient(reopened) as client:
         replayed = client.post(f"{CLAIM}/payment", json={"amount": "1250.00"})
         assert replayed.json() == first
         assert replayed.json()["payment"]["sign_off"] == signed
@@ -183,12 +176,10 @@ def test_sign_off_checks_financial_facts_in_one_read(client):
     engine = client.app.state.store.engine
     event.listen(engine, "before_cursor_execute", record)
     try:
-        client.post(
-            f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}
-        ).raise_for_status()
+        client.post(f"{CLAIM}/sign-off", json={}).raise_for_status()
     finally:
         event.remove(engine, "before_cursor_execute", record)
-    assert len(statements) == 1
+    assert len(statements) == 2  # Handler lookup and the financial facts query.
 
 
 def test_settlement_tracks_committed_facts_without_fetching_full_detail(client):
@@ -200,7 +191,7 @@ def test_settlement_tracks_committed_facts_without_fetching_full_detail(client):
         "sign_off": None,
         "payment": None,
     }
-    signed = client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}).json()
+    signed = client.post(f"{CLAIM}/sign-off", json={}).json()
     assert client.get(endpoint).json() == {
         "status": "in_progress",
         "sign_off": signed,

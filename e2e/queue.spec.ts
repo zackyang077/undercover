@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "./session";
+import { standInUrl } from "./servers";
 
 const CASES = { held: "CLM-1013", referred: "CLM-1014" };
 
@@ -63,9 +64,7 @@ test("starts a dispatch through the agent service and displays recorded results"
   const started = await accepted;
   expect(started.status()).toBe(202);
   const { run_id } = (await started.json()) as { run_id: string };
-  const observations = await request.get(
-    "http://127.0.0.1:8003/dispatch-observations",
-  );
+  const observations = await request.get(`${standInUrl}/dispatch-observations`);
   expect(await observations.json()).toEqual([
     { run_id, request: { concurrency: 7 } },
   ]);

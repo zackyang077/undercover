@@ -1,5 +1,4 @@
 from fastapi import BackgroundTasks
-from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from backend.eval_sources import (
@@ -10,6 +9,7 @@ from backend.eval_sources import (
 )
 from backend.main import create_app
 from backend.storage import Store
+from backend.tests.handler_session import SignedClient
 
 ORIGINAL = "CLM-1001"
 EXTRA_LIVE_ID = "TEST-LIVE-PRIOR"
@@ -65,7 +65,7 @@ def test_copy_detail_keeps_seed_history_and_refuses_sign_off(tmp_path, monkeypat
         BackgroundTasks, "add_task", lambda *args: queued_tasks.append(args)
     )
 
-    with TestClient(create_app(path)) as client:
+    with SignedClient(create_app(path)) as client:
         original_result = client.get(f"/api/claims/{ORIGINAL}").json()
         assert not original_result["evaluation_copy"]
         live_history = {
@@ -99,7 +99,7 @@ def test_copy_detail_keeps_seed_history_and_refuses_sign_off(tmp_path, monkeypat
         )
         assert held.status_code == 200
         assert held.json()["status"] == "waiting_sign_off"
-        signed = client.post(f"{copied_url}/sign-off", json={"handler_id": "HND-01"})
+        signed = client.post(f"{copied_url}/sign-off", json={})
         assert signed.status_code == 403
         assert signed.json()["detail"] == "Evaluation copies cannot be signed off"
         assert (

@@ -5,6 +5,7 @@ import { ClaimQueue } from "./ClaimQueue";
 import { Workspace } from "./Workspace";
 import { QueueControl } from "./QueueControl";
 import { Scoreboard } from "./Scoreboard";
+import { SignOut } from "./SignOut";
 import "./style.css";
 
 const pageTitles = {
@@ -34,9 +35,8 @@ function PageHeading({ tab }: Readonly<{ tab: DashboardTab }>) {
   );
 }
 
-export function App() {
+export function App({ handler }: Readonly<{ handler: Handler }>) {
   const [claims, setClaims] = useState<ClaimSummary[]>([]);
-  const [handlers, setHandlers] = useState<Handler[]>([]);
   const [wording, setWording] = useState<Wording | null>(null);
   const [instructions, setInstructions] = useState({ claim: "" });
   const [selected, setSelected] = useState(
@@ -81,14 +81,12 @@ export function App() {
     let cancelled = false;
     void Promise.all([
       api<ClaimSummary[]>("/claims"),
-      api<Handler[]>("/handlers"),
       api<Wording>("/policy-wording"),
       api<{ claim: string }>("/agent/instructions"),
     ])
-      .then(([queue, people, policy, prompt]) => {
+      .then(([queue, policy, prompt]) => {
         if (cancelled) return;
         setClaims(queue);
-        setHandlers(people);
         setWording(policy);
         setInstructions(prompt);
         setReady(true);
@@ -135,7 +133,10 @@ export function App() {
             Agent instructions
           </button>
         </nav>
-        <span className="pilot-label">Local pilot · USD</span>
+        <div className="handler-menu">
+          <span>{handler.name}</span>
+          <SignOut onError={setError} />
+        </div>
       </header>
       <main>
         <PageHeading tab={tab} />
@@ -210,7 +211,7 @@ export function App() {
                 <Workspace
                   key={selected}
                   claimId={selected}
-                  handlers={handlers}
+                  handler={handler}
                   wording={wording}
                   onChange={refreshQueue}
                   queueRunning={queueRunning}

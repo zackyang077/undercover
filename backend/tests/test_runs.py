@@ -3,7 +3,6 @@ import time
 from contextlib import nullcontext
 
 import pytest
-from fastapi.testclient import TestClient
 
 from agent import main
 from agent.tests.test_agent import StubModel, replies
@@ -12,6 +11,7 @@ from backend.main import create_app
 from backend.runs import Runs
 from backend.schemas import DecisionInput, PaymentInput
 from backend.storage import Store
+from backend.tests.handler_session import SignedClient
 from backend.tests.test_finance import decision
 
 
@@ -25,7 +25,7 @@ def test_background_activity(tmp_path, monkeypatch, amount):
         return main.run(claim_id, thread_id, StubModel(messages=iter(replies(amount))))
 
     app = create_app(tmp_path / "run.sqlite3", runner)
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         response = client.post("/api/claims/CLM-1001/runs")
         assert response.status_code == 202
@@ -49,7 +49,7 @@ def test_background_activity(tmp_path, monkeypatch, amount):
             ).status_code
             == 409
         )
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         assert client.get("/api/claims/CLM-1001/runs").json()[0]["status"] == status
 
 
@@ -75,7 +75,7 @@ def test_failure_retry(tmp_path, error):
         raise error
 
     app = create_app(tmp_path / "failed.sqlite3", runner)
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         assert client.post("/api/claims/CLM-1001/runs").status_code == 202
         for _ in range(100):
             if client.get("/api/claims/CLM-1001").json()["status"] == "needs_handler":
@@ -102,7 +102,7 @@ def test_restart_interruption(tmp_path):
     store.initialize()
     runs = Runs(store, lambda c, t: "")
     previous = runs.start("CLM-1001")
-    with TestClient(create_app(path, lambda c, t: "")) as client:
+    with SignedClient(create_app(path, lambda c, t: "")) as client:
         saved = client.get("/api/claims/CLM-1001/runs").json()[0]
         assert saved["status"] == "interrupted"
         assert saved["events"][-1]["kind"] == "interrupted"
@@ -120,7 +120,7 @@ def test_committed_payment_survives_response_loss(tmp_path):
         raise RuntimeError("Payment response lost")
 
     app = create_app(tmp_path / "paid.sqlite3", runner)
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         client.post("/api/claims/CLM-1001/runs")
         wait_for_run(client, "completed")
         detail = client.get("/api/claims/CLM-1001").json()
@@ -131,7 +131,7 @@ def test_committed_payment_survives_response_loss(tmp_path):
 
 def test_agent_deadline_and_inactive_logging(tmp_path, monkeypatch):
     app = create_app(tmp_path / "deadline.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         monkeypatch.setattr(main.time, "monotonic", lambda: 0)
         tools = main.tools_for("CLM-1001")
@@ -148,7 +148,7 @@ def test_agent_deadline_and_inactive_logging(tmp_path, monkeypatch):
 
 def test_unfinished_payment_preserves_thread_and_budget(tmp_path):
     app = create_app(tmp_path / "payment-failure.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         runs = app.state.runs
         started = runs.start("CLM-1001")
         Finance(app.state.store).decide(
@@ -170,7 +170,7 @@ def test_signoff_activates_original_paused_attempt_before_notification(
     tmp_path, monkeypatch
 ):
     app = create_app(tmp_path / "waiting.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         runs = app.state.runs
         cid = "CLM-1001"
         thread = runs.start(cid).thread_id
@@ -182,9 +182,7 @@ def test_signoff_activates_original_paused_attempt_before_notification(
         monkeypatch.setattr(
             "backend.dispatch.notify", lambda _: observed.extend(runs.list(cid))
         )
-        client.post(
-            f"/api/claims/{cid}/sign-off", json={"handler_id": "HND-01"}
-        ).raise_for_status()
+        client.post(f"/api/claims/{cid}/sign-off", json={}).raise_for_status()
         assert [(run.thread_id, run.status) for run in observed] == [
             (thread, "running")
         ]

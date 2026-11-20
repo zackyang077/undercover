@@ -261,3 +261,7 @@ notebook regressions), 16 frontend tests, and 9 Playwright tests, with lint,
 formatting and type checks. Playwright required local port access outside the
 sandbox. The two updated definition cells were rerun in the current notebook
 kernel; paid experiments were not rerun.
+
+## Improve · Phase 1
+
+The desk signs handlers in through Supabase Auth. Configure VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY. The API verifies asymmetric JWTs and looks up the handler by email. Only Dana may sign over-limit payouts. Existing handler records upgrade on startup. For the single-claim CLI use `uv run --env-file .env -m agent CLM-1001` with HANDLER_EMAIL/HANDLER_PASSWORD or a short-lived HANDLER_ACCESS_TOKEN. Offline checks passed 207 Python tests, 29 dashboard tests and 11 Playwright scenarios using a local Auth service.

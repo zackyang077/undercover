@@ -2,17 +2,17 @@ from unittest.mock import Mock
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from backend import agent_service
 from backend.main import create_app
+from backend.tests.handler_session import SignedClient
 from backend.tests.test_finance import decision
 from backend.tests.test_swarm import dispatch
 
 
 @pytest.fixture
 def client(tmp_path):
-    with TestClient(create_app(tmp_path / "dispatch.sqlite3")) as client:
+    with SignedClient(create_app(tmp_path / "dispatch.sqlite3")) as client:
         yield client
 
 
@@ -138,7 +138,7 @@ def test_dispatch_summary_uses_saved_records_and_freezes_on_close(client):
     assert snapshot["model_cost_complete"] is True
     assert snapshot["elapsed_ms"] == 300
 
-    sign = client.post(f"/api/claims/{held}/sign-off", json={"handler_id": "HND-01"})
+    sign = client.post(f"/api/claims/{held}/sign-off", json={})
     assert sign.status_code == 200
     payment = client.post(f"/api/claims/{held}/payment", json={"amount": 1250})
     assert payment.status_code == 200

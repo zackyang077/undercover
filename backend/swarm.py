@@ -4,11 +4,12 @@ import json
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select, true
 
 from backend.agent_service import AcceptedRun, start
+from backend.auth import require_handler
 from backend.db import events, records, swarm_claims, swarm_runs
 from backend.db import runs as attempts
 from backend.db import swarm_active as active
@@ -430,12 +431,22 @@ def routes(swarm: Swarm) -> APIRouter:
     router = APIRouter()
     router.include_router(internal_routes(swarm))
 
-    @router.post("/api/dispatch", status_code=202, operation_id="start_dispatch")
+    @router.post(
+        "/api/dispatch",
+        status_code=202,
+        operation_id="start_dispatch",
+        dependencies=[Depends(require_handler)],
+    )
     def start_dispatch(body: StartDispatch) -> AcceptedRun:
         """Ask the agent service to start a dispatch."""
         return start("/dispatch", body)
 
-    @router.post("/api/evaluations", status_code=202, operation_id="start_evaluation")
+    @router.post(
+        "/api/evaluations",
+        status_code=202,
+        operation_id="start_evaluation",
+        dependencies=[Depends(require_handler)],
+    )
     def start_evaluation(body: StartEvaluation) -> AcceptedRun:
         """Ask the agent service to start a labelled evaluation."""
         return start("/evaluations", body)

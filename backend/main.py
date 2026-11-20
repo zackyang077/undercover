@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, FastAPI
 from pydantic import JsonValue
 
 from backend import dispatch
+from backend.auth import CurrentHandler, HandlerAuth, SeniorHandler
 from backend.finance import Finance
 from backend.guidance import routes as guidance_routes
 from backend.payout import routes as payout_routes
@@ -50,6 +51,12 @@ def create_app(
     application = FastAPI(title="UnderCover", lifespan=lifespan)
     application.state.store = store
     application.state.runs = runs
+    application.state.auth = HandlerAuth()
+
+    @application.get("/api/me", operation_id="get_signed_in_handler")
+    def me(handler: CurrentHandler) -> Handler:
+        """Read the signed-in handler and their authority."""
+        return handler
 
     @application.get("/api/health", operation_id="health")
     def health() -> dict[str, str]:
@@ -108,10 +115,13 @@ def financial_routes(store: Store) -> APIRouter:
 
     @router.post("/api/claims/{claim_id}/sign-off", operation_id="sign_off_claim")
     def sign_off_claim(
-        claim_id: str, request: SignOffInput, background: BackgroundTasks
+        claim_id: str,
+        request: SignOffInput,
+        background: BackgroundTasks,
+        handler: SeniorHandler,
     ) -> dict[str, JsonValue]:
         """Record handler sign-off on an approved claim."""
-        saved = finance.sign_off(claim_id, request)
+        saved = finance.sign_off(claim_id, handler.handler_id)
         background.add_task(dispatch.notify, f"/claims/{claim_id}/resume")
         return saved
 

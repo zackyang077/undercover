@@ -47,7 +47,6 @@ function setup(
           payout_amount: detail.decision?.payout_amount ?? null,
           payment_status: detail.payment ? "paid" : "unpaid",
         }));
-      else if (url === "/api/handlers") body = people;
       else if (url === "/api/policy-wording") body = wording;
       else if (url === "/api/agent/instructions")
         body = {
@@ -80,7 +79,7 @@ afterEach(() => {
 
 it("shows the complete claim and read-only instructions", async () => {
   setup();
-  render(<App />);
+  render(<App handler={people[0]} />);
   expect(await screen.findByText(fixture.claim.story)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { pressed: true }));
   expect(window.location.search).toBe("?claim=CLM-1001");
@@ -105,7 +104,7 @@ it("shows the complete claim and read-only instructions", async () => {
 
 it("polls an active run and shows a paid decision without reload", async () => {
   setup();
-  render(<App />);
+  render(<App handler={people[0]} />);
   fireEvent.click(await screen.findByRole("button", { name: "Start agent" }));
   expect(
     await screen.findByRole("button", { name: "Agent is working" }),
@@ -143,9 +142,11 @@ it("polls an active run and shows a paid decision without reload", async () => {
 });
 
 it("signs once, then follows the agent payment across reopening the claim", async () => {
+  const signOffBody = vi.fn();
   const signedAt = "2026-11-18T02:30:00Z";
   setup((path, init) => {
     if (init?.method === "POST" && path.endsWith("/sign-off")) {
+      signOffBody(init.body);
       detail.sign_off = {
         handler_id: "HND-01",
         handler_name: "Dana Whitfield",
@@ -157,14 +158,12 @@ it("signs once, then follows the agent payment across reopening the claim", asyn
   });
   detail.decision = { ...approved, payout_amount: 1250 };
   detail.status = "waiting_sign_off";
-  const { unmount } = render(<App />);
+  const { unmount } = render(<App handler={people[0]} />);
   const sign = await screen.findByRole("button", { name: "Sign off" });
-  expect(sign).toHaveProperty("disabled", true);
-  fireEvent.change(screen.getByLabelText("Handler"), {
-    target: { value: "HND-01" },
-  });
+  expect(screen.queryByLabelText("Handler")).toBeNull();
   fireEvent.click(sign);
   const signed = await screen.findByText(/Signed off by Dana Whitfield/);
+  expect(signOffBody).toHaveBeenCalledWith("{}");
   expect(signed.querySelector("time")?.dateTime).toBe(signedAt);
   expect(
     screen.getByText("Payment pending", { selector: "strong" }),
@@ -172,7 +171,7 @@ it("signs once, then follows the agent payment across reopening the claim", asyn
   expect(screen.queryByRole("button", { name: "Sign off" })).toBeNull();
 
   unmount();
-  render(<App />);
+  render(<App handler={people[0]} />);
   expect(await screen.findByText(/Signed off by Dana Whitfield/)).toBeDefined();
   expect(screen.getAllByText("In progress").length).toBeGreaterThan(0);
   expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull();
@@ -211,7 +210,7 @@ it("shows a paid claim while the activity log and refreshed queue are still load
   });
   detail.decision = approved;
   detail.status = "in_progress";
-  render(<App />);
+  render(<App handler={people[0]} />);
   expect(await screen.findByText(fixture.claim.story)).toBeDefined();
   detail.status = "decided";
   detail.payment = {
@@ -235,7 +234,7 @@ it.each(["decline", "refer"] as const)(
     detail.add_ons = [
       { name: "Electronics Plus", effect: "Raises item limit" },
     ];
-    render(<App />);
+    render(<App handler={people[0]} />);
     const panel = await screen.findByRole("region", { name: "Agent decision" });
     expect(
       within(panel).getByText(outcome === "refer" ? "Refer" : "Decline"),
@@ -263,7 +262,7 @@ it("retains failed activity and offers an explicit retry", async () => {
       ],
     },
   ];
-  render(<App />);
+  render(<App handler={people[0]} />);
   fireEvent.click(await screen.findByRole("button", { name: "Retry agent" }));
   expect(
     await screen.findByRole("button", { name: "Agent is working" }),
@@ -272,7 +271,7 @@ it("retains failed activity and offers an explicit retry", async () => {
 
 it("shows a useful connection error", async () => {
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
-  render(<App />);
+  render(<App handler={people[0]} />);
   expect(await screen.findByRole("alert")).toHaveProperty(
     "textContent",
     "offline",
@@ -285,14 +284,14 @@ it("shows a claim fetch error and an empty queue", async () => {
       ? Response.json({ detail: "Claim unavailable" }, { status: 404 })
       : undefined,
   );
-  const { unmount } = render(<App />);
+  const { unmount } = render(<App handler={people[0]} />);
   expect(await screen.findByRole("alert")).toHaveProperty(
     "textContent",
     "Claim unavailable",
   );
   unmount();
   setup((path) => (path === "/api/claims" ? Response.json([]) : undefined));
-  render(<App />);
+  render(<App handler={people[0]} />);
   expect(await screen.findByText("No claims in the queue.")).toBeDefined();
 });
 
@@ -311,7 +310,7 @@ it("normalizes non-string API errors", async () => {
 it("shows technical handler needs and read-only claim instructions", async () => {
   setup();
   detail.status = "needs_handler";
-  render(<App />);
+  render(<App handler={people[0]} />);
   expect(
     await screen.findByText(
       /Left for a handler after two unsuccessful attempts/,
@@ -323,4 +322,23 @@ it("shows technical handler needs and read-only claim instructions", async () =>
   expect(
     screen.getByText("Use the policy wording to decide claims."),
   ).toBeDefined();
+});
+
+it("explains a held payout to a handler without sign-off permission", async () => {
+  setup();
+  detail.decision = { ...approved, payout_amount: 1250 };
+  detail.status = "waiting_sign_off";
+  render(
+    <App
+      handler={{
+        ...people[0],
+        name: "Marcus Oyelaran",
+        can_approve_over_limit: false,
+      }}
+    />,
+  );
+  expect(
+    await screen.findByText(/A senior handler must sign off/),
+  ).toBeDefined();
+  expect(screen.queryByRole("button", { name: "Sign off" })).toBeNull();
 });

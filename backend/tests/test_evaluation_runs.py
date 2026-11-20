@@ -1,7 +1,6 @@
 from contextlib import nullcontext
 
 import httpx
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from agent import main
@@ -12,6 +11,7 @@ from backend import agent_service
 from backend.db import swarm_claims, swarm_runs
 from backend.eval_sources import evaluation_copies, handler_references
 from backend.main import create_app
+from backend.tests.handler_session import SignedClient
 from backend.tests.test_swarm import dispatch
 
 
@@ -41,7 +41,7 @@ def test_start_forwards_evaluation_selection_without_creating_run(
 
     monkeypatch.setattr(agent_service.httpx, "post", forward)
     app = create_app(tmp_path / "claims.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         payload = {"dataset": "held_out", "size": "tiny", "concurrency": 5}
         response = client.post("/api/evaluations", json=payload)
         assert response.status_code == 202
@@ -59,7 +59,7 @@ def test_held_copy_finishes_and_clears_checkpoint_without_signoff(
     tmp_path, monkeypatch
 ):
     app = create_app(tmp_path / "claims.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         original = client.get("/api/claims").json()
         received = []
         generate = StubModel._generate
@@ -105,7 +105,7 @@ def test_held_copy_finishes_and_clears_checkpoint_without_signoff(
         copy = api("GET", path)
         assert copy["decision"]["payout_amount"] == 1250
         assert copy["payment"] is None
-        assert client.post(f"{path}/sign-off", json={"handler_id": "HND-01"}).is_error
+        assert client.post(f"{path}/sign-off", json={}).is_error
         thread = api("GET", f"{path}/runs")[0]["thread_id"]
         with open_saver() as saver:
             assert saver.get_tuple({"configurable": {"thread_id": thread}}) is None
@@ -114,7 +114,7 @@ def test_held_copy_finishes_and_clears_checkpoint_without_signoff(
 
 def test_stopped_copies_are_not_admitted_to_live_dispatch(tmp_path):
     app = create_app(tmp_path / "claims.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         assert evaluation(client, "abandoned").status_code == 201
         base = "/api/swarm/runs/abandoned"
         copies = client.get(f"{base}/work").json()

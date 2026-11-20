@@ -44,8 +44,6 @@ class PaymentInput(BaseModel):
 class SignOffInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    handler_id: str
-
 
 class Record(BaseModel):
     """Preserve additional seed fields without discarding evidence."""
@@ -124,6 +122,7 @@ class Plan(Record):
 
 
 class Handler(Record):
+    email: str
     handler_id: str
     name: str
     can_approve_over_limit: bool

@@ -1,4 +1,3 @@
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from agent import main
@@ -7,6 +6,7 @@ from agent.tests.test_agent import StubModel, replies
 from backend.db import runs
 from backend.main import create_app
 from backend.swarm import swarm_runs
+from backend.tests.handler_session import SignedClient
 
 
 def dispatch(client, run_id: str):
@@ -26,7 +26,7 @@ def dispatch(client, run_id: str):
 
 def test_membership_oldest_first_and_recover_same_attempt(tmp_path):
     app = create_app(tmp_path / "claims.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         store = app.state.store
         with store.connection(write=True) as connection:
             for claim_id in ("CLM-1002", "CLM-1003"):
@@ -59,7 +59,7 @@ def test_membership_oldest_first_and_recover_same_attempt(tmp_path):
 
 def test_unrelated_failure_has_one_fresh_attempt(tmp_path):
     app = create_app(tmp_path / "claims.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         assert dispatch(client, "trial").status_code == 201
         base = "/api/swarm/runs/trial/claims/CLM-1001"
         first = client.post(f"{base}/activate").json()["thread_id"]
@@ -84,7 +84,7 @@ def test_signoff_reservation_takes_ownership_of_original_thread(tmp_path, monkey
     claim = f"/api/claims/{claim_id}"
     member = f"/api/swarm/runs/trial/claims/{claim_id}"
     ownership = ClaimOwnership()
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
 
         def request(method, path, body=None):
             response = client.request(method, path, json=body)
@@ -113,7 +113,7 @@ def test_signoff_reservation_takes_ownership_of_original_thread(tmp_path, monkey
                 client.post(f"{claim}/payment", json={"amount": 1250}).status_code
                 == 403
             )
-            signed = client.post(f"{claim}/sign-off", json={"handler_id": "HND-01"})
+            signed = client.post(f"{claim}/sign-off", json={})
             assert signed.status_code == 200
             assert ownership.request_resume(claim_id)
             settled = client.post(f"{member}/{thread}/finish", json={"error": ""})

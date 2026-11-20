@@ -65,7 +65,23 @@ class Store:
             initialize_guidance(self, connection, DATA)
             if not self.find(connection, "settings", "company"):
                 self._seed_live_records(connection)
+                self.insert(connection, "migrations", "handler_sign_in", {})
+            elif self.find(connection, "migrations", "handler_sign_in") is None:
+                self._upgrade_handler_identities(connection)
             initialize_evaluations(connection, DATA)
+
+    def _upgrade_handler_identities(self, connection: Connection):
+        handlers = json.loads((DATA / "handlers.json").read_text(encoding="utf-8"))
+        for identity in handlers:
+            handler_id = identity["handler_id"]
+            saved = self.find(connection, "handlers", handler_id)
+            if saved is not None:
+                saved.update(
+                    email=identity["email"],
+                    can_approve_over_limit=identity["can_approve_over_limit"],
+                )
+                self.update(connection, "handlers", handler_id, saved)
+        self.insert(connection, "migrations", "handler_sign_in", {})
 
     def _seed_live_records(self, connection: Connection):
         for kind, id_field in SEEDS.items():

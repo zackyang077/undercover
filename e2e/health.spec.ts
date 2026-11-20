@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./session";
 
 test("the dashboard shows the claims queue", async ({ page }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });

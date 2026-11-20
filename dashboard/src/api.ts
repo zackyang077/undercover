@@ -1,3 +1,5 @@
+import { accessHeaders } from "./auth";
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -8,13 +10,14 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, body?: unknown): Promise<T> {
+  const headers = accessHeaders();
   const response = await fetch(
     `/api${path}`,
     body === undefined
-      ? undefined
+      ? { headers }
       : {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify(body),
         },
   );

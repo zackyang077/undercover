@@ -1,12 +1,23 @@
 """Observe browser-test run starts and committed sign-offs."""
 
+import os
 from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import JsonValue
 
+from backend.tests.auth_server import routes as auth_routes
+
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[os.environ.get("UNDERCOVER_TEST_ORIGIN", "http://127.0.0.1:5174")],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+app.include_router(auth_routes)
 observations: dict[str, list[dict[str, JsonValue]]] = {}
 dispatch_starts: list[dict[str, JsonValue]] = []
 evaluation_starts: list[dict[str, JsonValue]] = []
@@ -53,7 +64,8 @@ def read_evaluation_starts() -> list[dict[str, JsonValue]]:
 @app.post("/claims/{claim_id}/resume", operation_id="observe_resume")
 def observe_resume(claim_id: str) -> dict[str, str]:
     """Observe the sign-off as a separate service can read it."""
-    response = httpx.get(f"http://127.0.0.1:8010/api/claims/{claim_id}", timeout=5)
+    base = os.environ["BACKEND_URL"]
+    response = httpx.get(f"{base}/api/claims/{claim_id}", timeout=5)
     response.raise_for_status()
     detail = response.json()
     observations.setdefault(claim_id, []).append(

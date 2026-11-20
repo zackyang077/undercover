@@ -807,3 +807,31 @@ footer {
   overflow-wrap: anywhere;
   font: inherit;
 }
+.handler-menu {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+.login {
+  max-width: 460px;
+  margin: 9vh auto;
+}
+.login-form,
+.login-form label {
+  display: grid;
+  gap: 8px;
+}
+.login-form {
+  gap: 20px;
+}
+.login-form h1 {
+  font-size: 36px;
+}
+.login-form input {
+  padding: 10px 12px;
+  border: 1px solid #8ca3aa;
+  border-radius: 8px;
+  font: inherit;
+}

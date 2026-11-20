@@ -123,13 +123,13 @@ function useClaimDetail(
 
 export function Workspace({
   claimId,
-  handlers,
+  handler,
   wording,
   onChange,
   queueRunning,
 }: Readonly<{
   claimId: string;
-  handlers: Handler[];
+  handler: Handler;
   wording: Wording;
   onChange: () => Promise<void>;
   queueRunning: boolean;
@@ -237,12 +237,7 @@ export function Workspace({
           activity and decide the next action.
         </p>
       )}
-      <DecisionPanel
-        detail={detail}
-        handlers={handlers}
-        busy={busy}
-        act={act}
-      />
+      <DecisionPanel detail={detail} handler={handler} busy={busy} act={act} />
       <div className="work-grid">
         <div>
           <Evidence detail={detail} wording={wording} />

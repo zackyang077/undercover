@@ -18,3 +18,15 @@ for key in (
 def isolated_claim_files(tmp_path, monkeypatch):
     monkeypatch.setenv("UNDERCOVER_DB", str(tmp_path / "claims.sqlite3"))
     monkeypatch.setattr("backend.dispatch.notify", lambda path: None)
+
+
+@pytest.fixture(autouse=True)
+def isolated_handler_keys(monkeypatch):
+    from jwt import PyJWKClient
+    from backend.tests.handler_session import PROJECT, PUBLIC
+
+    monkeypatch.setenv("VITE_SUPABASE_URL", PROJECT)
+    monkeypatch.delenv("HANDLER_ACCESS_TOKEN", raising=False)
+    monkeypatch.setattr(
+        PyJWKClient, "fetch_data", lambda self: {"keys": [{**PUBLIC, "kid": "offline"}]}
+    )

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, signIn, type Page } from "./session";
+import { standInUrl } from "./servers";
 
 async function openClaim(page: Page, claimId: string) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -83,7 +84,7 @@ test("sign-off reaches the agent service with the committed handler record", asy
   await start(page);
   const sign = page.getByRole("button", { name: "Sign off", exact: true });
   await expect(sign).toBeVisible();
-  await expect(sign).toBeDisabled();
+  await expect(sign).toBeEnabled();
   await page.screenshot({ path: "e2e/test-results/pilot-sign-off.png" });
   const blocked = await request.post("/api/claims/CLM-1003/payment", {
     data: { amount: 3750 },
@@ -95,7 +96,19 @@ test("sign-off reaches the agent service with the committed handler record", asy
       pagePayments.push(req.url());
     }
   });
-  await page.getByLabel("Handler").selectOption("HND-01");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  const marcus = await signIn(page, "Marcus Oyelaran");
+  await openClaim(page, "CLM-1003");
+  await expect(sign).toHaveCount(0);
+  await expect(page.getByText(/senior handler/i)).toBeVisible();
+  const refused = await request.post("/api/claims/CLM-1003/sign-off", {
+    headers: marcus,
+    data: {},
+  });
+  expect(refused.status()).toBe(403);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await signIn(page, "Dana Whitfield");
+  await openClaim(page, "CLM-1003");
   await sign.click();
   const signed = page.getByText(/Signed off by Dana Whitfield/);
   await expect(signed).toBeVisible();
@@ -106,7 +119,7 @@ test("sign-off reaches the agent service with the committed handler record", asy
   await expect
     .poll(async () => {
       const observations = await request.get(
-        "http://127.0.0.1:8003/observations/CLM-1003",
+        `${standInUrl}/observations/CLM-1003`,
       );
       return observations.json() as Promise<unknown>;
     })

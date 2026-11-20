@@ -155,7 +155,7 @@ it("restores the latest summary, cost and time with no eligible claims", async (
   vi.stubGlobal("fetch", fetch);
   renderControl(0);
   expect(await screen.findByText("Dispatch completed")).toBeDefined();
-  expect(fetch).toHaveBeenCalledWith("/api/dispatch/current", undefined);
+  expect(fetch).toHaveBeenCalledWith("/api/dispatch/current", { headers: {} });
   expect(
     screen.getByText("1 approved · 0 declined · 0 referred"),
   ).toBeDefined();

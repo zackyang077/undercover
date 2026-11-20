@@ -14,6 +14,7 @@ from agent.tests.test_agent import StubModel
 from backend import dispatch
 from backend.dispatch import notify as send_notification
 from backend.main import create_app
+from backend.tests.handler_session import SignedClient, token
 from backend.tests.test_finance import decision
 
 CLAIM_ID = "CLM-1001"
@@ -23,7 +24,7 @@ RESUME = f"/claims/{CLAIM_ID}/resume"
 
 @pytest.fixture
 def backend(tmp_path, monkeypatch):
-    with TestClient(create_app(tmp_path / "service.db")) as client:
+    with SignedClient(create_app(tmp_path / "service.db")) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         yield client
 
@@ -55,7 +56,7 @@ def test_notifications_and_wake_respond_while_payment_is_blocked(backend, monkey
         monkeypatch.setattr(dispatch.httpx, "post", post_to_agent)
         try:
             assert agent.get("/health").json() == {"status": "ok"}
-            signed = backend.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"})
+            signed = backend.post(f"{CLAIM}/sign-off", json={})
             signed.raise_for_status()
             assert notified == [signed.json()]
             assert entered.wait(timeout=5)
@@ -85,7 +86,7 @@ def test_unreachable_service_keeps_saved_signoff(backend, monkeypatch):
     backend.post(f"{CLAIM}/decision", json=decision(1250)).raise_for_status()
     assert backend.post(f"{CLAIM}/sign-off", json={"handler_id": "missing"}).is_error
     assert not seen
-    signed = backend.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"})
+    signed = backend.post(f"{CLAIM}/sign-off", json={})
     signed.raise_for_status()
     assert seen == [f"http://127.0.0.1:8002{RESUME}"]
     detail = backend.get(CLAIM).json()
@@ -96,6 +97,7 @@ def test_unreachable_service_keeps_saved_signoff(backend, monkeypatch):
 
 def test_module_starts_work_and_wakes_service(backend, monkeypatch, capsys):
     notifications = []
+    monkeypatch.setenv("HANDLER_ACCESS_TOKEN", token())
     monkeypatch.setattr(dispatch, "notify", notifications.append)
     monkeypatch.setattr(sys, "argv", ["agent", CLAIM_ID])
     runpy.run_module("agent", run_name="__main__")

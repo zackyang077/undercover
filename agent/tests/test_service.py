@@ -11,6 +11,7 @@ from agent.checkpoints import open_saver
 from agent.tests.test_agent import StubModel, replies
 from backend.main import create_app
 from backend.swarm import swarm_runs
+from backend.tests.handler_session import SignedClient
 
 CLAIM_ID = "CLM-1001"
 CLAIM = f"/api/claims/{CLAIM_ID}"
@@ -21,7 +22,7 @@ def test_signed_checkpoint_fast_path_requires_matching_cached_thread(
     tmp_path, monkeypatch, warm_thread
 ):
     app = create_app(tmp_path / "signed-thread.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         stub = StubModel(messages=iter(replies(1250)))
         monkeypatch.setattr(main, "model", lambda: stub)
@@ -40,7 +41,7 @@ def test_signed_checkpoint_fast_path_requires_matching_cached_thread(
         assert client.get(signed_url).json() is None
         worker.resume(CLAIM_ID)
         assert client.get(CLAIM).json()["payment"] is None
-        signed = client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"})
+        signed = client.post(f"{CLAIM}/sign-off", json={})
         signed.raise_for_status()
         assert client.get(signed_url).json() == {
             "thread_id": thread,
@@ -77,18 +78,18 @@ def test_restart_after_missed_signoff_and_duplicate_notifications(
 ):
     path = tmp_path / "signed.db"
     app = create_app(path)
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         runs = app.state.runs
         thread = runs.start(CLAIM_ID).thread_id
         main.run(CLAIM_ID, thread, StubModel(messages=iter(replies(1250))))
         assert runs.conclude(CLAIM_ID, thread, "").status == "paused"
-        result = client.post(f"{CLAIM}/sign-off", json={"handler_id": "HND-01"})
+        result = client.post(f"{CLAIM}/sign-off", json={})
         assert result.is_success
         assert client.get(CLAIM).json()["status"] == "in_progress"
 
     app = create_app(path)
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         worker = service.Worker(
             lambda c, t: main.run(c, t, StubModel(messages=iter([])))
@@ -108,7 +109,7 @@ def test_failed_signed_payment_remains_recoverable_on_original_thread(
     tmp_path, monkeypatch
 ):
     app = create_app(tmp_path / "failed-payment.sqlite3")
-    with TestClient(app) as client:
+    with SignedClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         monkeypatch.setattr(
             main, "model", lambda: StubModel(messages=iter(replies(1250)))
@@ -117,9 +118,7 @@ def test_failed_signed_payment_remains_recoverable_on_original_thread(
         thread = runs.start(CLAIM_ID).thread_id
         worker = service.Worker()
         worker.resume(CLAIM_ID)
-        client.post(
-            f"{CLAIM}/sign-off", json={"handler_id": "HND-01"}
-        ).raise_for_status()
+        client.post(f"{CLAIM}/sign-off", json={}).raise_for_status()
 
         request = main.request
 
@@ -149,7 +148,7 @@ def test_startup_stops_dispatch_without_resuming_its_investigation(
     path = tmp_path / "startup.sqlite3"
     run_id = "interrupted-run"
     prefix = f"/api/swarm/runs/{run_id}"
-    with TestClient(create_app(path)) as backend:
+    with SignedClient(create_app(path)) as backend:
         backend.post(
             "/api/swarm/runs",
             json={
@@ -167,7 +166,7 @@ def test_startup_stops_dispatch_without_resuming_its_investigation(
         thread = response.json()["thread_id"]
 
     app = create_app(path)
-    with TestClient(app) as backend:
+    with SignedClient(app) as backend:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(backend))
         calls = []
         worker = service.Worker(lambda *args: calls.append(args))

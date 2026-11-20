@@ -205,10 +205,9 @@ it("retries a newly accepted detail, then shows stopped results and claim links"
     await screen.findByText("Partial results · 4 of 5 claims worked"),
   ).toBeDefined();
   expect(fetch).toHaveBeenCalledTimes(2);
-  expect(fetch).toHaveBeenCalledWith(
-    "/api/evaluations/evaluation-2",
-    undefined,
-  );
+  expect(fetch).toHaveBeenCalledWith("/api/evaluations/evaluation-2", {
+    headers: {},
+  });
   expect(screen.getByText("None")).toBeDefined();
   expect(screen.getByText("Mismatch")).toBeDefined();
   expect(screen.getByText("No decision")).toBeDefined();

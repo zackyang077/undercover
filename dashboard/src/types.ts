@@ -12,6 +12,7 @@ export interface ClaimSummary {
   payment_status: string;
 }
 export interface Handler {
+  email: string;
   handler_id: string;
   name: string;
   can_approve_over_limit: boolean;

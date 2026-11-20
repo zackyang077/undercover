@@ -83,6 +83,7 @@ export const people: Handler[] = [
   {
     handler_id: "HND-01",
     name: "Dana Whitfield",
+    email: "dana.whitfield@undercover.example",
     can_approve_over_limit: true,
   },
 ];

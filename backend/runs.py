@@ -4,11 +4,12 @@ import asyncio
 from collections.abc import Callable
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import literal, select
 
 from backend import dispatch
+from backend.auth import require_handler
 from backend.db import attempts, events, swarm_active, swarm_runs
 from backend.db import runs as run_table
 from backend.eval_sources import evaluation_copies
@@ -265,7 +266,10 @@ def routes(runs: Runs) -> APIRouter:
     router.include_router(telemetry_routes(runs.store))
 
     @router.post(
-        "/api/claims/{claim_id}/runs", status_code=202, operation_id="start_claim_run"
+        "/api/claims/{claim_id}/runs",
+        status_code=202,
+        operation_id="start_claim_run",
+        dependencies=[Depends(require_handler)],
     )
     async def start_claim_run(claim_id: str, background: BackgroundTasks) -> Run:
         """Start the agent on one waiting claim."""

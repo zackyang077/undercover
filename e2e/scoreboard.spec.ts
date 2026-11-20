@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Locator,
-} from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator } from "./session";
+import { standInUrl } from "./servers";
 
 const selection = { dataset: "held_out", size: "tiny", concurrency: 5 };
 const explanation = "The isolated browser worker saved this decision.";
@@ -109,6 +105,7 @@ async function verifyMeasurements(summary: Locator) {
 test("evaluates the held-out tiny set and shows persisted comparisons without changing the queue", async ({
   page,
   request,
+  handlerHeaders,
 }) => {
   const before = await queueSnapshot(request);
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -133,9 +130,7 @@ test("evaluates the held-out tiny set and shows persisted comparisons without ch
   const started = await accepted;
   expect(started.status()).toBe(202);
   const { run_id } = (await started.json()) as { run_id: string };
-  const observed = await request.get(
-    "http://127.0.0.1:8003/evaluation-observations",
-  );
+  const observed = await request.get(`${standInUrl}/evaluation-observations`);
   expect(await observed.json()).toContainEqual({ run_id, request: selection });
 
   const copies = await createEvaluation(request, run_id, "held_out");
@@ -215,7 +210,8 @@ test("evaluates the held-out tiny set and shows persisted comparisons without ch
   ).toHaveCount(0);
   await expect(page.getByLabel("Handler", { exact: true })).toHaveCount(0);
   const blocked = await request.post(`/api/claims/${held}/sign-off`, {
-    data: { handler_id: "HND-01" },
+    headers: handlerHeaders,
+    data: {},
   });
   expect(blocked.status()).toBe(403);
   await nav.getByText("Claims", { exact: true }).click();

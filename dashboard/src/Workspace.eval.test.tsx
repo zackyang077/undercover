@@ -41,7 +41,7 @@ it.each([
     render(
       <Workspace
         claimId={claimId}
-        handlers={people}
+        handler={people[0]}
         wording={wording}
         onChange={() => Promise.resolve()}
         queueRunning={false}
