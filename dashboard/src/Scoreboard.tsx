@@ -5,6 +5,8 @@ type Dataset = "evaluation" | "held_out";
 type Size = "full" | "tiny";
 
 interface EvaluationScore {
+  grade: number | null;
+  judge_cost: string | null;
   claim_count: number;
   worked_count: number;
   decision_accuracy: number | null;
@@ -21,6 +23,10 @@ interface EvaluationScore {
 }
 
 interface EvaluationClaim {
+  grade: number | null;
+  letter: string | null;
+  same_grounds: number | null;
+  same_section: number | null;
   claim_id: string;
   source_id: string;
   status: string;
@@ -96,6 +102,11 @@ function percentage(value: number | null) {
 
 function Measurements({ score }: Readonly<{ score: EvaluationScore }>) {
   const readings = [
+    [
+      "Average explanation grade",
+      score.grade == null ? "Not graded" : `${score.grade.toFixed(2)} / 3`,
+    ],
+    ["Judge cost", modelCost(score.judge_cost ?? null)],
     ["Decision accuracy", percentage(score.decision_accuracy)],
     ["Accuracy", percentage(score.accuracy)],
     ["Straight-through rate", percentage(score.straight_through)],
@@ -260,6 +271,11 @@ function EvaluationSettings({ run }: Readonly<{ run: EvaluationRun }>) {
   );
 }
 
+function gradeCheck(value: number | null) {
+  if (value == null) return "Not graded";
+  return value >= 0.5 ? "Yes" : "No";
+}
+
 function Comparison({
   claim,
   scored,
@@ -303,6 +319,22 @@ function Comparison({
         <div>
           <dt>Model cost</dt>
           <dd>{modelCost(claim.model_cost)}</dd>
+        </div>
+        <div>
+          <dt>Explanation grade</dt>
+          <dd>
+            {claim.grade == null
+              ? "Not graded"
+              : `${claim.letter ?? ""} · ${claim.grade.toFixed(2)} / 3`}
+          </dd>
+        </div>
+        <div>
+          <dt>Same grounds</dt>
+          <dd>{gradeCheck(claim.same_grounds)}</dd>
+        </div>
+        <div>
+          <dt>Same section</dt>
+          <dd>{gradeCheck(claim.same_section)}</dd>
         </div>
         <div>
           <dt>Active work</dt>

@@ -20,6 +20,8 @@ const completed = {
   created_at: "2026-11-19T10:12:00Z",
   finished_at: "2026-11-19T10:12:13Z",
   score: {
+    grade: 1.42,
+    judge_cost: "0.00005",
     claim_count: 5,
     worked_count: 4,
     decision_accuracy: 0.8,
@@ -36,6 +38,10 @@ const completed = {
   },
   claims: [
     {
+      grade: 1.42,
+      letter: "F",
+      same_grounds: 0.9,
+      same_section: 0.3,
       claim_id: "EVAL-abc",
       source_id: "CLM-1001",
       status: "completed",
@@ -186,6 +192,9 @@ it("polls while an evaluation is running and shows its final scores", async () =
   expect(screen.queryByText("Decision accuracy")).toBeNull();
   expect(await screen.findByText("Decision accuracy")).toBeDefined();
   expect(screen.getByText("80%")).toBeDefined();
+  expect(screen.getByText("F · 1.42 / 3")).toBeDefined();
+  expect(screen.getByText("Yes")).toBeDefined();
+  expect(screen.getByText("No")).toBeDefined();
 });
 
 it("retries a newly accepted detail, then shows stopped results and claim links", async () => {

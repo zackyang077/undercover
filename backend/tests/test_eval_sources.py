@@ -51,6 +51,7 @@ def seed_files(tmp_path):
                     "payout": "123.45",
                     "tiny": index <= 5,
                     "reason": HANDLER_ONLY,
+                    "reference": "Section 3",
                 }
                 for index in range(1, 7)
             ],

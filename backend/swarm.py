@@ -1,6 +1,7 @@
 """Persist dispatch membership and admit durable claim work."""
 
 import json
+from threading import Lock
 from typing import Annotated, Literal
 from uuid import uuid4
 
@@ -15,7 +16,9 @@ from backend.db import runs as attempts
 from backend.db import swarm_active as active
 from backend.eval_sources import EvalSet, EvalSize, create_copies
 from backend.finance import now
+from backend.judge import Judge
 from backend.runs import Runs
+from backend.scoreboard import grade_evaluation
 from backend.storage import MAX_ATTEMPTS
 from backend.swarm_metrics import measure
 from backend.telemetry import Telemetry
@@ -89,6 +92,8 @@ class Swarm:
     def __init__(self, runs: Runs):
         self.runs = runs
         self.store = runs.store
+        self.judge = Judge()
+        self.closing = Lock()
 
     def candidates(self, connection) -> list[str]:
         queue = self.store.queries.queue.order_by(None).subquery()
@@ -281,6 +286,13 @@ class Swarm:
         return answer
 
     def close(self, run_id: str, request: RunFinish):
+        with self.closing:
+            grade_evaluation(
+                self.store, run_id, self.judge, stopped=request.status == "stopped"
+            )
+            return self._finish_run(run_id, request)
+
+    def _finish_run(self, run_id: str, request: RunFinish):
         with self.store.connection(write=True) as connection:
             kind = connection.scalar(
                 select(swarm_runs.c.kind).where(swarm_runs.c.run_id == run_id, active)
@@ -423,17 +435,18 @@ class Swarm:
             return self.dispatch_view(newest) if newest else None
 
     def recover(self):
-        with self.store.connection(write=True) as connection:
+        with self.store.connection() as connection:
             stale = list(connection.scalars(select(swarm_runs.c.run_id).where(active)))
-            for run_id in stale:
-                self.close(
-                    run_id,
-                    RunFinish(
-                        status="stopped",
-                        error="Agent service restarted",
-                        dispositions={},
-                    ),
-                )
+        for run_id in stale:
+            self.close(
+                run_id,
+                RunFinish(
+                    status="stopped",
+                    error="Agent service restarted",
+                    dispositions={},
+                ),
+            )
+        with self.store.connection(write=True) as connection:
             threads = self.cleanup_threads(connection)
         return {"evaluation_threads": threads}
 

@@ -19,7 +19,8 @@ const env = {
   DATABASE_URL: "",
   LANGFUSE_SECRET_KEY: "",
   LANGFUSE_PUBLIC_KEY: "",
-  OPENROUTER_API_KEY: "",
+  OPENROUTER_API_KEY: "fixture",
+  OPENROUTER_JUDGE_URL: standInUrl,
   MODEL_NAME: "",
 };
 

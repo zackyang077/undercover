@@ -269,3 +269,7 @@ The desk signs handlers in through Supabase Auth. Configure VITE_SUPABASE_URL an
 ## Improve · Phase 2
 
 Configuration and Settings are available on the signed-in desk. Runs retain their selected instructions and model. Decisions keep their approval limit when settings change. Verified dispatch, candidate, replay, audit, theme persistence and read-only access with 214 Python, 33 dashboard and 12 browser tests. The free-model override has been tested on the claim worker; its improver check belongs to phase 5.
+
+## Improve · Phase 3
+
+Completed evaluations store Jev explanation grades, match probabilities and judge costs. Configure OPENROUTER_JUDGE_URL only to override the Decisions origin. Offline acceptance in an isolated copy without .env passed 219 Python tests (96.08%), 33 dashboard tests (94.69%) and 12 Playwright scenarios. The real SDK contacted a local Decisions stand-in. A concurrent 25-copy close with a 10-second timeout completed in under 20 seconds without double purchasing the grades.

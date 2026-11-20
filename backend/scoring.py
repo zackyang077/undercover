@@ -51,6 +51,8 @@ class EvaluationScore:
     work_ms_per_claim: float | None
     work_complete: bool
     elapsed_ms: int | None
+    grade: float | None = None
+    judge_cost: Decimal | None = None
 
 
 def score_claim(row: ScoreInput) -> ClaimScore:

@@ -86,6 +86,8 @@ async function playClaim(
 
 async function verifyMeasurements(summary: Locator) {
   const expected = {
+    "Average explanation grade": "1.42 / 3",
+    "Judge cost": "$0.00005",
     "Decision accuracy": "20%",
     Accuracy: "20%",
     "Straight-through rate": "20%",
@@ -196,6 +198,9 @@ test("evaluates the held-out tiny set and shows persisted comparisons without ch
   await expect(heldComparison).toContainText("Decline · $0.00");
   await expect(heldComparison).toContainText("Approve · $1,250.00");
   await expect(heldComparison).toContainText(explanation);
+  await expect(heldComparison).toContainText("F · 1.42 / 3");
+  await expect(heldComparison).toContainText("Same groundsYes");
+  await expect(heldComparison).toContainText("Same sectionNo");
   const copyLink = heldComparison.getByRole("link", { name: "CLM-1114" });
   await expect(copyLink).toHaveAttribute("href", `?claim=${held}`);
   await copyLink.click();

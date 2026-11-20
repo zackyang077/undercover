@@ -12,9 +12,12 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Connection,
+    Float,
+    Numeric,
     Table,
     Text,
     UniqueConstraint,
+    inspect,
     select,
 )
 
@@ -39,6 +42,8 @@ handler_references = Table(
     Column("decision", Text, nullable=False),
     Column("payout_cents", BigInteger, nullable=False),
     Column("tiny", Boolean, nullable=False),
+    Column("reason", Text, nullable=False),
+    Column("reference", Text, nullable=False),
     CheckConstraint("set_name IN ('evaluation', 'held_out')"),
     CheckConstraint("decision IN ('approve', 'decline', 'refer')"),
     CheckConstraint(
@@ -56,11 +61,25 @@ evaluation_copies = Table(
 )
 
 
+evaluation_grades = Table(
+    "evaluation_grades",
+    metadata,
+    Column("copy_id", Text, primary_key=True),
+    Column("grade", Float),
+    Column("letter", Text),
+    Column("same_grounds", Float),
+    Column("same_section", Float),
+    Column("judge_cost", Numeric(18, 10)),
+)
+
+
 class _Reference(BaseModel):
     claim_id: str
     decision: Literal["approve", "decline", "refer"]
     payout: Money
     tiny: StrictBool
+    reason: str
+    reference: str
 
 
 def _sources(path: Path):
@@ -87,6 +106,8 @@ def _references(path: Path, set_name: EvalSet, source_ids: set[str]):
             "decision": label.decision,
             "payout_cents": int(label.payout * 100),
             "tiny": label.tiny,
+            "reason": label.reason,
+            "reference": label.reference,
         }
         for label in labels
     ]
@@ -94,7 +115,40 @@ def _references(path: Path, set_name: EvalSet, source_ids: set[str]):
 
 def initialize(connection: Connection, data_path: Path) -> None:
     """Seed the static sources and answer keys in the caller's transaction."""
-    if connection.scalar(select(handler_references.c.source_id).limit(1)) is not None:
+    existing = (
+        connection.scalar(select(handler_references.c.source_id).limit(1)) is not None
+    )
+    columns = {
+        column["name"]
+        for column in inspect(connection).get_columns("handler_references")
+    }
+    if existing and "reason" in columns:
+        return
+    if "reason" not in columns:
+        connection.exec_driver_sql(
+            "ALTER TABLE handler_references ADD COLUMN reason TEXT NOT NULL DEFAULT ''"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE handler_references ADD COLUMN reference "
+            "TEXT NOT NULL DEFAULT ''"
+        )
+    if existing:
+        for dataset, file in (
+            ("evaluation", "decisions.json"),
+            ("held_out", "held_out_decisions.json"),
+        ):
+            labels = TypeAdapter(list[_Reference]).validate_json(
+                (data_path / "evals" / file).read_bytes()
+            )
+            for label in labels:
+                connection.execute(
+                    handler_references.update()
+                    .where(
+                        handler_references.c.set_name == dataset,
+                        handler_references.c.source_id == label.claim_id,
+                    )
+                    .values(reason=label.reason, reference=label.reference)
+                )
         return
 
     evals = data_path / "evals"
