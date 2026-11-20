@@ -4,7 +4,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Literal
+from functools import lru_cache
 from urllib.parse import urlencode
 
 import httpx
@@ -14,6 +14,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from agent import claim_graph
+from agent.configuration import RunConfiguration
 from backend.payout import PayoutInput
 from backend.schemas import DecisionInput
 
@@ -136,7 +137,7 @@ def emit(thread_id: str, kind: str, tool_name: str, text: str):
 @dataclass(frozen=True)
 class ModelSettings:
     model_name: str
-    reasoning_effort: Literal["low"] | None
+    reasoning_effort: str | None
 
 
 def model_settings() -> ModelSettings:
@@ -159,23 +160,49 @@ def model(settings: ModelSettings | None = None) -> ChatOpenAI:
     )
 
 
-def run(
-    claim_id: str,
-    thread_id: str,
-    llm: BaseChatModel | None = None,
-    *,
-    signed_record: dict | None = None,
-    run_id: str | None = None,
-) -> str:
-    """Advance the claim graph on one durable thread."""
-    nodes = claim_graph.ClaimGraph(
-        claim_id=claim_id,
-        thread_id=thread_id,
-        run_id=run_id,
-        request=claim_operation,
-        emit=emit,
-        tools={tool.name: tool for tool in tools_for(claim_id, thread_id)},
-        get_model=lambda: llm or model(),
-        deadline=time.monotonic() + CLAIM_SECONDS,
-    )
-    return claim_graph.run(nodes, signed_record)
+@dataclass
+class ClaimRunner:
+    configuration: RunConfiguration | None = None
+
+    def __call__(
+        self,
+        claim_id: str,
+        thread_id: str,
+        llm: BaseChatModel | None = None,
+        *,
+        signed_record: dict | None = None,
+        run_id: str | None = None,
+    ) -> str:
+        """Advance the claim graph on one durable thread."""
+
+        @lru_cache(maxsize=1)
+        def selected_configuration():
+            if self.configuration is not None:
+                return self.configuration
+            return RunConfiguration.model_validate(
+                claim_operation("GET", "/api/agent/configuration/current")
+            )
+
+        @lru_cache(maxsize=1)
+        def bound_model(model_name: str, effort: str):
+            settings = ModelSettings(
+                model_name, None if effort == "default" else effort
+            )
+            return (llm or model(settings)).bind_tools(list(tools.values()))
+
+        tools = {tool.name: tool for tool in tools_for(claim_id, thread_id)}
+        nodes = claim_graph.ClaimGraph(
+            claim_id=claim_id,
+            thread_id=thread_id,
+            run_id=run_id,
+            request=claim_operation,
+            emit=emit,
+            tools=tools,
+            configuration=selected_configuration,
+            bound_model=bound_model,
+            deadline=time.monotonic() + CLAIM_SECONDS,
+        )
+        return claim_graph.run(nodes, signed_record)
+
+
+run = ClaimRunner()

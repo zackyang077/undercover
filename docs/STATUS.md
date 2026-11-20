@@ -265,3 +265,7 @@ kernel; paid experiments were not rerun.
 ## Improve · Phase 1
 
 The desk signs handlers in through Supabase Auth. Configure VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY. The API verifies asymmetric JWTs and looks up the handler by email. Only Dana may sign over-limit payouts. Existing handler records upgrade on startup. For the single-claim CLI use `uv run --env-file .env -m agent CLM-1001` with HANDLER_EMAIL/HANDLER_PASSWORD or a short-lived HANDLER_ACCESS_TOKEN. Offline checks passed 207 Python tests, 29 dashboard tests and 11 Playwright scenarios using a local Auth service.
+
+## Improve · Phase 2
+
+Configuration and Settings are available on the signed-in desk. Runs retain their selected instructions and model. Decisions keep their approval limit when settings change. Verified dispatch, candidate, replay, audit, theme persistence and read-only access with 214 Python, 33 dashboard and 12 browser tests. The free-model override has been tested on the claim worker; its improver check belongs to phase 5.

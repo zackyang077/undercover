@@ -40,6 +40,7 @@ class EvaluationClaim(BaseModel):
 
 
 class EvaluationRun(BaseModel):
+    config_version: int | None = None
     run_id: str
     status: str
     concurrency: int
@@ -84,6 +85,7 @@ def evaluation_rows(connection, run_id: str, dataset: str):
 
 def view(store: Store, run, *, details: bool) -> EvaluationRun:
     with store.connection() as connection:
+        version = store.find(connection, "run_configurations", run["run_id"])
         usage, work = Telemetry(store).for_run(run["run_id"])
         metrics, elapsed = measure(usage, work, run["status"])
         rows = evaluation_rows(connection, run["run_id"], run["dataset"])
@@ -122,7 +124,14 @@ def view(store: Store, run, *, details: bool) -> EvaluationRun:
                     )
                 )
     score = score_evaluation(inputs, elapsed) if run["status"] != "running" else None
-    return EvaluationRun.model_validate({**run, "score": score, "claims": items})
+    return EvaluationRun.model_validate(
+        {
+            **run,
+            "config_version": version["version"] if version else None,
+            "score": score,
+            "claims": items,
+        }
+    )
 
 
 def routes(store: Store) -> APIRouter:

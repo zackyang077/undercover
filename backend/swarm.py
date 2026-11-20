@@ -73,6 +73,7 @@ class DispatchSummary(BaseModel):
 
 
 class DispatchRun(BaseModel):
+    config_version: int | None = None
     run_id: str
     status: str
     concurrency: int
@@ -108,12 +109,20 @@ class Swarm:
         )
         return [claim_id for _, claim_id in ordered]
 
-    def create(self, request: RunInput):
+    def create(self, request: RunInput, version: int | None = None):
         with self.store.connection(write=True) as connection:
             if connection.scalar(
                 select(swarm_runs.c.run_id).where(swarm_runs.c.run_id == request.run_id)
             ):
                 return
+            if version is not None:
+                self.store.get("configuration", str(version))
+                self.store.insert(
+                    connection,
+                    "run_configurations",
+                    request.run_id,
+                    {"version": version},
+                )
             if connection.scalar(select(swarm_runs.c.run_id).where(active)):
                 raise HTTPException(409, "A dispatch or evaluation is already running")
             if request.kind == "evaluation":
@@ -336,6 +345,7 @@ class Swarm:
                 raise HTTPException(404, "Dispatch not found")
             if run["snapshot"]:
                 return DispatchRun.model_validate_json(run["snapshot"])
+            version = self.store.find(connection, "run_configurations", run_id)
             claim = self.store.queries.claims_projection.subquery()
             rows = connection.execute(
                 select(
@@ -390,6 +400,7 @@ class Swarm:
                 ],
             )
         return DispatchRun(
+            config_version=version["version"] if version else None,
             run_id=run_id,
             status=run["status"],
             concurrency=run["concurrency"],
@@ -471,6 +482,16 @@ def internal_routes(swarm: Swarm) -> APIRouter:
     def create_swarm_run(body: RunInput) -> dict[str, str]:
         """Create the accepted run and save its ordered claim membership."""
         swarm.create(body)
+        return {"run_id": body.run_id}
+
+    @router.post(
+        "/versions/{version}",
+        status_code=201,
+        operation_id="create_versioned_swarm_run",
+    )
+    def create_versioned_swarm_run(version: int, body: RunInput) -> dict[str, str]:
+        """Save a run's bound configuration and claim membership together."""
+        swarm.create(body, version)
         return {"run_id": body.run_id}
 
     @router.post("/recover", operation_id="recover_swarm_runs")

@@ -48,9 +48,17 @@ function setup(
           payment_status: detail.payment ? "paid" : "unpaid",
         }));
       else if (url === "/api/policy-wording") body = wording;
-      else if (url === "/api/agent/instructions")
+      else if (url === "/api/configuration")
         body = {
-          claim: "Use the policy wording to decide claims.",
+          current: 1,
+          versions: [
+            {
+              version: 1,
+              instructions: "Use the policy wording to decide claims.",
+              created_at: "2026-11-18",
+              diff: [],
+            },
+          ],
         };
       else if (url === "/api/dispatch/current") body = null;
       else if (url.endsWith("/runs")) {
@@ -93,9 +101,9 @@ it("shows the complete claim and read-only instructions", async () => {
   fireEvent.click(screen.getByText("Customer and claim history"));
   expect(screen.getByText("Baggage delay in Lisbon")).toBeDefined();
   expect(screen.getAllByText("$420.00").length).toBeGreaterThan(0);
-  fireEvent.click(screen.getByRole("button", { name: "Agent instructions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
   expect(
-    screen.getByText("Use the policy wording to decide claims."),
+    await screen.findByText("Use the policy wording to decide claims."),
   ).toBeDefined();
   expect(screen.queryByRole("textbox")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Claims" }));
@@ -317,10 +325,10 @@ it("shows technical handler needs and read-only claim instructions", async () =>
     ),
   ).toBeDefined();
   expect(screen.queryByRole("button", { name: "Start agent" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Agent instructions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Configuration" }));
   expect(screen.queryByText("Queue instructions")).toBeNull();
   expect(
-    screen.getByText("Use the policy wording to decide claims."),
+    await screen.findByText("Use the policy wording to decide claims."),
   ).toBeDefined();
 });
 

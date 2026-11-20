@@ -8,8 +8,9 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, FastAPI
 from pydantic import JsonValue
 
-from backend import dispatch
+from backend import configuration, dispatch
 from backend.auth import CurrentHandler, HandlerAuth, SeniorHandler
+from backend.configuration_routes import routes as configuration_routes
 from backend.finance import Finance
 from backend.guidance import routes as guidance_routes
 from backend.payout import routes as payout_routes
@@ -86,10 +87,13 @@ def create_app(
     @application.get("/api/agent/instructions", operation_id="get_agent_instructions")
     def get_agent_instructions() -> dict[str, str]:
         """Read the instructions used by the claims agent."""
-        claim = Path(__file__).with_name("instructions.md").read_text(encoding="utf-8")
+        claim = configuration.effective_config(store, configuration.current(store))[
+            "instructions"
+        ]
         return {"content": claim, "claim": claim}
 
     application.include_router(guidance_routes(store))
+    application.include_router(configuration_routes(store))
     application.include_router(payout_routes(store))
     application.include_router(financial_routes(store))
     application.include_router(work_routes(runs))

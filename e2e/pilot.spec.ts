@@ -219,9 +219,9 @@ test("desktop and mobile layouts support evidence, instructions, and keyboard ac
     path: "e2e/test-results/pilot-desktop.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Agent instructions" }).click();
+  await page.getByRole("button", { name: "Configuration" }).click();
   await expect(
-    page.getByRole("heading", { name: "Claims handling instructions" }),
+    page.getByRole("heading", { name: "Configuration versions" }),
   ).toBeVisible();
   await expect(page.getByRole("textbox")).toHaveCount(0);
   await page.screenshot({
@@ -240,10 +240,10 @@ test("desktop and mobile layouts support evidence, instructions, and keyboard ac
     path: "e2e/test-results/pilot-mobile.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Agent instructions" }).focus();
+  await page.getByRole("button", { name: "Configuration" }).focus();
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("heading", { name: "Claims handling instructions" }),
+    page.getByRole("heading", { name: "Configuration versions" }),
   ).toBeVisible();
   expect(errors).toEqual([]);
 });

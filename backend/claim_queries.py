@@ -48,7 +48,10 @@ class ClaimQueries:
         filed = claim_doc["submitted_on"].as_string()
         outcome = doc(decision)["outcome"].as_string()
         payout = doc(decision)["payout_amount"].as_float()
-        limit = doc(company)["payout_approval_limit"].as_float()
+        limit = func.coalesce(
+            doc(decision)["approval_limit"].as_float(),
+            doc(company)["payout_approval_limit"].as_float(),
+        )
         unpaid = (outcome == "approve") & payment.c.id.is_(None)
         running = (
             select(runs.c.thread_id)

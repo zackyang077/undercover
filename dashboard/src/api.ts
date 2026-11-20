@@ -9,14 +9,18 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, body?: unknown): Promise<T> {
+export async function api<T>(
+  path: string,
+  body?: unknown,
+  method: "POST" | "PUT" = "POST",
+): Promise<T> {
   const headers = accessHeaders();
   const response = await fetch(
     `/api${path}`,
     body === undefined
       ? { headers }
       : {
-          method: "POST",
+          method,
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify(body),
         },

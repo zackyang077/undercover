@@ -118,20 +118,22 @@ def test_module_requires_claim_or_serve(monkeypatch):
 def test_accepts_before_backend_creation_and_reserves_one_run(kind, monkeypatch):
     entering, allow_create = Event(), Event()
     recorded = []
-    models = []
     cleared = []
 
-    def model(settings):
-        models.append(settings)
-        return StubModel(messages=iter([]))
-
     def api(method, path, body=None):
+        if path == "/api/agent/configuration/current":
+            return {
+                "version": 3,
+                "model": expected_model,
+                "reasoning_effort": effort,
+                "instructions": "Version three.",
+            }
         if path == "/api/swarm/runs/recover":
             return {"evaluation_threads": ["stopped-evaluation-thread"]}
         if path == "/api/work":
             return {"claims": []}
         recorded.append((method, path, body))
-        if path == "/api/swarm/runs":
+        if path == "/api/swarm/runs/versions/3":
             entering.set()
             assert allow_create.wait(timeout=5)
             assert body is not None
@@ -147,7 +149,6 @@ def test_accepts_before_backend_creation_and_reserves_one_run(kind, monkeypatch)
 
     monkeypatch.setattr(service, "api", api)
     monkeypatch.setattr(service, "clear_threads", cleared.extend)
-    monkeypatch.setattr(main, "model", model)
     monkeypatch.delenv("MODEL_NAME", raising=False)
     dispatch_request = ("/dispatch", {"concurrency": 3})
     evaluation_request = (
@@ -159,7 +160,7 @@ def test_accepts_before_backend_creation_and_reserves_one_run(kind, monkeypatch)
         expected_model, effort = main.DEFAULT_MODEL, "low"
     else:
         first, second = evaluation_request, dispatch_request
-        expected_model, effort = "openrouter/free", None
+        expected_model, effort = "openrouter/free", "default"
         monkeypatch.setenv("MODEL_NAME", expected_model)
 
     with TestClient(service.create_service()) as agent:
@@ -179,7 +180,7 @@ def test_accepts_before_backend_creation_and_reserves_one_run(kind, monkeypatch)
     assert recorded == [
         (
             "POST",
-            "/api/swarm/runs",
+            "/api/swarm/runs/versions/3",
             {
                 "run_id": run_id,
                 "kind": kind,
@@ -196,9 +197,6 @@ def test_accepts_before_backend_creation_and_reserves_one_run(kind, monkeypatch)
             f"/api/swarm/runs/{run_id}/close",
             {"status": "completed", "error": "", "dispositions": {}},
         ),
-    ]
-    assert [(setting.model_name, setting.reasoning_effort) for setting in models] == [
-        (expected_model, effort)
     ]
     assert cleared == (
         ["stopped-evaluation-thread", "closed-evaluation-thread"]

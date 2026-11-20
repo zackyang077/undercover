@@ -6,20 +6,27 @@ import { Workspace } from "./Workspace";
 import { QueueControl } from "./QueueControl";
 import { Scoreboard } from "./Scoreboard";
 import { SignOut } from "./SignOut";
+import { Configuration } from "./Configuration";
+import { Settings } from "./Settings";
 import "./style.css";
+import "./platform.css";
 
 const pageTitles = {
   claims: "Claims desk",
   scoreboard: "Scoreboard",
-  instructions: "Agent instructions",
+  configuration: "Configuration",
+  settings: "Settings",
 };
 type DashboardTab = keyof typeof pageTitles;
 
 function PageHeading({ tab }: Readonly<{ tab: DashboardTab }>) {
   const subtitles = {
     claims: "Every claim, considered.",
-    scoreboard: "",
-    instructions: "The guidance behind every decision.",
+    scoreboard: "Compare evaluation results with handler decisions.",
+    configuration:
+      "Review the claim agent’s instructions, model, and version history.",
+    settings:
+      "Manage payout approvals, improvement objectives, and spending limits.",
   };
   return (
     <div className="page-heading">
@@ -38,7 +45,6 @@ function PageHeading({ tab }: Readonly<{ tab: DashboardTab }>) {
 export function App({ handler }: Readonly<{ handler: Handler }>) {
   const [claims, setClaims] = useState<ClaimSummary[]>([]);
   const [wording, setWording] = useState<Wording | null>(null);
-  const [instructions, setInstructions] = useState({ claim: "" });
   const [selected, setSelected] = useState(
     () =>
       new URLSearchParams(window.location.search).get("claim") ?? "CLM-1001",
@@ -51,7 +57,8 @@ export function App({ handler }: Readonly<{ handler: Handler }>) {
     if (query.has("evaluation") || query.get("page") === "scoreboard") {
       return "scoreboard";
     }
-    return "claims";
+    const page = query.get("page");
+    return page === "configuration" || page === "settings" ? page : "claims";
   });
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
@@ -82,13 +89,11 @@ export function App({ handler }: Readonly<{ handler: Handler }>) {
     void Promise.all([
       api<ClaimSummary[]>("/claims"),
       api<Wording>("/policy-wording"),
-      api<{ claim: string }>("/agent/instructions"),
     ])
-      .then(([queue, policy, prompt]) => {
+      .then(([queue, policy]) => {
         if (cancelled) return;
         setClaims(queue);
         setWording(policy);
-        setInstructions(prompt);
         setReady(true);
       })
       .catch((failure: unknown) => {
@@ -124,14 +129,18 @@ export function App({ handler }: Readonly<{ handler: Handler }>) {
           >
             Scoreboard
           </button>
-          <button
-            aria-current={tab === "instructions" ? "page" : undefined}
-            onClick={() => {
-              setTab("instructions");
-            }}
-          >
-            Agent instructions
-          </button>
+          {(["configuration", "settings"] as const).map((page) => (
+            <button
+              key={page}
+              aria-current={tab === page ? "page" : undefined}
+              onClick={() => {
+                setTab(page);
+                window.history.replaceState(null, "", "?page=" + page);
+              }}
+            >
+              {pageTitles[page]}
+            </button>
+          ))}
         </nav>
         <div className="handler-menu">
           <span>{handler.name}</span>
@@ -145,21 +154,18 @@ export function App({ handler }: Readonly<{ handler: Handler }>) {
             {error}
           </p>
         )}
-        {!ready && !error && <p role="status">Loading claims desk…</p>}
+        {tab === "claims" && !ready && !error && (
+          <p role="status">Loading claims desk…</p>
+        )}
         {tab === "scoreboard" && (
           <Scoreboard
             evaluationId={evaluationId}
             onSelectEvaluation={selectEvaluation}
           />
         )}
-        {ready && tab === "instructions" && (
-          <section className="panel instructions">
-            <h2>Claims handling instructions</h2>
-            <p className="muted">
-              Read only. These are the instructions served to the agent.
-            </p>
-            <pre>{instructions.claim}</pre>
-          </section>
+        {tab === "configuration" && <Configuration />}
+        {tab === "settings" && (
+          <Settings writable={handler.can_approve_over_limit} />
         )}
         {ready && tab === "claims" && (
           <>

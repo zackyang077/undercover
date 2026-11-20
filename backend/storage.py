@@ -11,6 +11,7 @@ from sqlalchemy import Connection, func, select
 from sqlalchemy.schema import CreateSchema
 
 from backend.claim_queries import ClaimQueries
+from backend.configuration import initialize as initialize_configuration
 from backend.db import attempts, engine_for, key, metadata, records, runs
 from backend.eval_sources import initialize as initialize_evaluations
 from backend.guidance import initialize as initialize_guidance
@@ -69,6 +70,7 @@ class Store:
             elif self.find(connection, "migrations", "handler_sign_in") is None:
                 self._upgrade_handler_identities(connection)
             initialize_evaluations(connection, DATA)
+            initialize_configuration(self, connection, DATA)
 
     def _upgrade_handler_identities(self, connection: Connection):
         handlers = json.loads((DATA / "handlers.json").read_text(encoding="utf-8"))

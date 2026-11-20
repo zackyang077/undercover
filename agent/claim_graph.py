@@ -7,12 +7,10 @@ from collections.abc import Callable
 from contextvars import Context
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from functools import cached_property
 from time import monotonic_ns
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 from uuid import uuid4
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
     AnyMessage,
@@ -27,6 +25,7 @@ from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
 from agent.checkpoints import open_saver
+from agent.configuration import RunConfiguration
 from agent.middleware import RETRY_DELAY, transient
 from agent.tracing import claim_config
 
@@ -48,6 +47,8 @@ class ClaimState(TypedDict):
     route: str
     amount: float
     summary: str
+    model_name: NotRequired[str]
+    reasoning_effort: NotRequired[str]
 
 
 def recorded(detail: dict) -> dict:
@@ -72,7 +73,8 @@ class ClaimGraph:
     request: Callable
     emit: Callable
     tools: dict[str, BaseTool]
-    get_model: Callable[[], BaseChatModel]
+    configuration: Callable[[], RunConfiguration]
+    bound_model: Callable
     deadline: float
     segment_id: str = field(default_factory=lambda: str(uuid4()), init=False)
     started_at: str = field(init=False)
@@ -86,10 +88,6 @@ class ClaimGraph:
     @property
     def path(self) -> str:
         return f"/api/claims/{self.claim_id}"
-
-    @cached_property
-    def bound_model(self):
-        return self.get_model().bind_tools(list(self.tools.values()))
 
     def check_time(self) -> None:
         if time.monotonic() > self.deadline:
@@ -128,12 +126,17 @@ class ClaimGraph:
         detail = self.request("GET", self.path)
         if detail.get("decision"):
             return recorded(detail)
-        instructions = self.request("GET", "/api/agent/instructions")["claim"]
+        configuration = self.configuration()
         messages = [
-            SystemMessage(instructions),
+            SystemMessage(configuration.instructions),
             HumanMessage(f"Decide claim {self.claim_id}."),
         ]
-        return {"route": "reserve", "messages": messages}
+        return {
+            "route": "reserve",
+            "messages": messages,
+            "model_name": configuration.model,
+            "reasoning_effort": configuration.reasoning_effort,
+        }
 
     @staticmethod
     def reserve(state: ClaimState) -> dict:
@@ -145,7 +148,14 @@ class ClaimGraph:
 
     def model(self, state: ClaimState) -> dict:
         self.event("model", f"Reviewing claim (model call {state['calls']})")
-        model = self.bound_model
+        if "model_name" in state and "reasoning_effort" in state:
+            model = self.bound_model(state["model_name"], state["reasoning_effort"])
+        else:
+            # Checkpoints from before configuration versioning contain only messages.
+            configuration = self.configuration()
+            model = self.bound_model(
+                configuration.model, configuration.reasoning_effort
+            )
         call_id = str(uuid4())
         try:
             answer = model.invoke(state["messages"])

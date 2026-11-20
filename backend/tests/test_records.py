@@ -6,18 +6,21 @@ from backend.main import create_app
 from backend.storage import COMPANY_FIELDS, DATA, Store
 
 
-def test_records_and_restart(tmp_path, monkeypatch):
+def observe_reads(monkeypatch, opened):
     read_text = Path.read_text
     read_bytes = Path.read_bytes
-    opened = []
 
     def track(path):
+        if path.parent == DATA.parent / "backend":
+            assert path.name in {"recipe.md", "instructions.md"}
+            return
         relative = path.relative_to(DATA).as_posix()
         assert relative in {
             "claims.json",
             "policies.json",
             "customers.json",
             "handlers.json",
+            "improvement.json",
             "plans.json",
             "company.json",
             "policy_wording.md",
@@ -38,6 +41,11 @@ def test_records_and_restart(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "read_text", tracked_text)
     monkeypatch.setattr(Path, "read_bytes", tracked_bytes)
+
+
+def test_records_and_restart(tmp_path, monkeypatch):
+    opened = []
+    observe_reads(monkeypatch, opened)
     path = tmp_path / "test.sqlite3"
     with TestClient(create_app(path)) as client:
         queue = client.get("/api/claims").json()

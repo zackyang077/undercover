@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from agent import main
 from agent.checkpoints import clear_threads
 from agent.claim_graph import WAITING_FOR_SIGN_OFF
+from agent.configuration import RunConfiguration
 from agent.dispatcher import MAX_CONCURRENCY, dispatch
 from agent.ownership import ClaimOwnership
 from agent.swarm_work import SwarmWork, failure_text
@@ -41,7 +42,7 @@ class ScheduledRun(StartDispatch):
     run_id: str
     kind: Literal["dispatch", "evaluation"]
     model: str
-    reasoning_effort: Literal["low"] | None
+    reasoning_effort: str
     dataset: Dataset | None
     size: EvaluationSize | None
 
@@ -61,9 +62,11 @@ class Worker:
         self.ownership = ClaimOwnership()
         self.waiting_threads: dict[str, str] = {}
 
-    def run_claim(self, claim_id: str, thread_id: str, **options) -> str:
+    def run_claim(
+        self, claim_id: str, thread_id: str, *, runner=None, **options
+    ) -> str:
         self.waiting_threads.pop(claim_id, None)
-        result = self.claim_runner(claim_id, thread_id, **options)
+        result = (runner or self.claim_runner)(claim_id, thread_id, **options)
         if self.can_resume_directly and result == WAITING_FOR_SIGN_OFF:
             self.waiting_threads[claim_id] = thread_id
         return result
@@ -112,17 +115,18 @@ class Worker:
         result = api("POST", f"{RUNS}/recover")
         clear_threads(result.get("evaluation_threads", []))
 
-    def run_swarm(self, job: ScheduledRun):
-        api("POST", RUNS, job.model_dump())
+    def run_swarm(self, job: ScheduledRun, configuration: RunConfiguration):
+        api("POST", f"{RUNS}/versions/{configuration.version}", job.model_dump())
         path = f"{RUNS}/{job.run_id}"
         status, error, dispositions = "completed", "", {}
         try:
             claim_runner = (
-                self.claim_runner if job.kind == "evaluation" else self.run_claim
+                main.ClaimRunner(configuration)
+                if self.can_resume_directly
+                else self.claim_runner
             )
-            if self.can_resume_directly:
-                settings = main.ModelSettings(job.model, job.reasoning_effort)
-                claim_runner = partial(claim_runner, llm=main.model(settings))
+            if job.kind == "dispatch":
+                claim_runner = partial(self.run_claim, runner=claim_runner)
             swarm = SwarmWork(api, self.ownership.dispatch, claim_runner)
             dispositions = self.dispatch_runner(
                 lambda: api("GET", f"{path}/work"),
@@ -138,6 +142,7 @@ class Worker:
             {"status": status, "error": error, "dispositions": dispositions},
         )
         clear_threads(result.get("evaluation_threads", []))
+        return status
 
 
 class ServiceTasks:
@@ -199,9 +204,9 @@ class ServiceTasks:
                 asyncio.to_thread(self.standalone.shutdown),
             )
 
-    def execute_run(self, job: ScheduledRun):
+    def execute_run(self, job: ScheduledRun, configuration: RunConfiguration):
         try:
-            self.worker.run_swarm(job)
+            self.worker.run_swarm(job, configuration)
         finally:
             self.running.release()
 
@@ -212,19 +217,27 @@ class ServiceTasks:
             raise HTTPException(503, "The claim service is starting")
         if not self.running.acquire(blocking=False):
             raise HTTPException(409, "A dispatch or evaluation is already running")
-        settings = main.model_settings()
+        try:
+            configuration = RunConfiguration.model_validate(
+                api("GET", "/api/agent/configuration/current")
+            )
+        except Exception:
+            self.running.release()
+            raise
         evaluation = isinstance(body, StartEvaluation)
         job = ScheduledRun(
             run_id=str(uuid4()),
             kind="evaluation" if evaluation else "dispatch",
-            model=settings.model_name,
-            reasoning_effort=settings.reasoning_effort,
+            model=configuration.model,
+            reasoning_effort=configuration.reasoning_effort,
             dataset=body.dataset if evaluation else None,
             size=body.size if evaluation else None,
             concurrency=body.concurrency,
         )
 
-        background.add_task(self.submit, self.coordinator, self.execute_run, job)
+        background.add_task(
+            self.submit, self.coordinator, self.execute_run, job, configuration
+        )
         return {"run_id": job.run_id}
 
 

@@ -5,6 +5,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { HandlerSession } from "./HandlerSession";
 
+import { watchTheme } from "./theme";
+
+const stopWatchingTheme = watchTheme();
+import.meta.hot?.dispose(stopWatchingTheme);
+
 const root = document.getElementById("root");
 if (!root) throw new Error("index.html has no #root element");
 

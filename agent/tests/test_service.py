@@ -25,7 +25,7 @@ def test_signed_checkpoint_fast_path_requires_matching_cached_thread(
     with SignedClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         stub = StubModel(messages=iter(replies(1250)))
-        monkeypatch.setattr(main, "model", lambda: stub)
+        monkeypatch.setattr(main, "model", lambda settings: stub)
         worker = service.Worker()
         runs = app.state.runs
         thread = runs.start(CLAIM_ID).thread_id
@@ -112,7 +112,7 @@ def test_failed_signed_payment_remains_recoverable_on_original_thread(
     with SignedClient(app) as client:
         monkeypatch.setattr(main, "backend", lambda: nullcontext(client))
         monkeypatch.setattr(
-            main, "model", lambda: StubModel(messages=iter(replies(1250)))
+            main, "model", lambda settings: StubModel(messages=iter(replies(1250)))
         )
         runs = app.state.runs
         thread = runs.start(CLAIM_ID).thread_id

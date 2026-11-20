@@ -90,6 +90,9 @@ class Finance:
                         **fields,
                         "payout_amount": float(decision.payout_amount),
                         "created_at": now(),
+                        "approval_limit": self.store.get("settings", "company")[
+                            "payout_approval_limit"
+                        ],
                         "wording_version": self.store.get("guidance", "wording")[
                             "version"
                         ],
@@ -142,7 +145,7 @@ class Finance:
 
     @staticmethod
     def limit_cents(facts: dict) -> int:
-        limit = facts["settings"]["payout_approval_limit"]
+        limit = facts["decisions"]["approval_limit"]
         return int(Decimal(str(limit)) * 100)
 
     def pay(self, claim_id: str, request: PaymentInput) -> ClaimDetail:

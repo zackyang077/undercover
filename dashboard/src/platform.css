@@ -1,0 +1,218 @@
+.platform-page {
+  display: grid;
+  gap: 20px;
+}
+.platform-page h2 {
+  margin-bottom: 16px;
+}
+.platform-page input,
+.platform-page select,
+.login-form input {
+  font: inherit;
+  color: inherit;
+  background: var(--field-surface, white);
+  border: 1px solid var(--control-edge, #899fa6);
+  padding: 9px 12px;
+  border-radius: 7px;
+}
+.settings-appearance label,
+.settings-fields label {
+  display: grid;
+  gap: 5px;
+  font-size: 14px;
+}
+.settings-appearance select {
+  width: 180px;
+}
+.settings-fields {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+}
+.settings-form fieldset {
+  border: 0;
+  margin: 0 0 18px;
+  padding: 0;
+}
+.settings-form legend {
+  font-weight: 600;
+  padding: 12px 0 6px;
+}
+.settings-fields input {
+  width: 100%;
+}
+.settings-history li {
+  margin: 4px 0;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+.platform-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.platform-table td,
+.platform-table th {
+  text-align: left;
+  padding: 10px;
+}
+.platform-table .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.platform-table caption {
+  text-align: left;
+  margin-bottom: 8px;
+}
+.platform-table .status {
+  margin-left: 8px;
+}
+.platform-table button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+  padding: 4px;
+}
+.platform-table button[aria-pressed="true"] {
+  background: var(--selection, #edf7f3);
+}
+.instruction-body,
+.text-diff {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.text-diff span {
+  display: block;
+}
+.text-diff .added {
+  background: #d9f4e5;
+  color: #114d38;
+}
+.text-diff .removed {
+  background: #ffe4e6;
+  color: #7a1833;
+}
+.confirm-dialog {
+  padding: 24px;
+  width: min(520px, 95vw);
+  border: none;
+  border-radius: 16px;
+  background: var(--card-surface, white);
+  color: inherit;
+}
+.confirm-dialog::backdrop {
+  background: rgb(4 35 46 / 55%);
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  color: #cdd8db;
+  background: #04232e;
+  --card-surface: #000;
+  --field-surface: #0b2c38;
+  --control-edge: #67848e;
+  --selection: #174638;
+}
+[data-theme="dark"]
+  :is(.topbar, .panel, .queue, .claim-row, .queue-row, .metrics > div, .card) {
+  background: #000;
+  color: #cdd8db;
+}
+[data-theme="dark"]
+  :is(
+    p,
+    label,
+    dt,
+    dd,
+    summary,
+    nav button,
+    .eyebrow,
+    .team-label,
+    .muted,
+    .mono,
+    .subtitle
+  ) {
+  color: inherit;
+}
+[data-theme="dark"] nav button[aria-current="page"],
+[data-theme="dark"] [aria-pressed="true"] {
+  background: #174638;
+  color: #cdd8db;
+}
+[data-theme="dark"]
+  :is(.brand-mark, .primary, .secondary, .status, .availability) {
+  color: #073b4c;
+}
+[data-theme="dark"]
+  :is(.decision-approved, .payment, .queue-row[aria-pressed="true"]) {
+  background: #10362e;
+}
+[data-theme="dark"] .text-diff .added {
+  color: #aef0cb;
+  background: #123a2d;
+}
+[data-theme="dark"] .text-diff .removed {
+  color: #ffbbca;
+  background: #47232b;
+}
+[data-theme="dark"]
+  :is(details, .calculation, .count, .dispatch-claims li, select) {
+  color: #cdd8db;
+  background: #0b2c38;
+}
+[data-theme="dark"]
+  :is(
+    .availability,
+    .queue-meta,
+    .queue-summary,
+    small,
+    .timeline time,
+    footer,
+    .approved-amount span
+  ) {
+  color: #a0b8c0;
+}
+[data-theme="dark"] .error-banner {
+  background: #47232b;
+  color: #ffbbca;
+}
+[data-theme="dark"] :is(.queue-current, .dispatch-claim-in_progress strong) {
+  color: #86d9f3;
+}
+[data-theme="dark"] .dispatch-claim-decided strong {
+  color: #83dfba;
+}
+[data-theme="dark"] :is(.queue-failure, .dispatch-claim-needs_handler strong) {
+  color: #ffadbd;
+}
+[data-theme="dark"] .metrics > div {
+  background: #10362e;
+}
+[data-theme="dark"] .metrics > div:nth-child(2) {
+  background: #3e3012;
+}
+[data-theme="dark"] .metrics > div:nth-child(3) {
+  background: #432b23;
+}
+@media (max-width: 760px) {
+  .topbar nav {
+    order: 3;
+    flex-basis: 100%;
+    margin: 0;
+    flex-wrap: wrap;
+  }
+  .handler-menu {
+    font-size: 12px;
+  }
+}
