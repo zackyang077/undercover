@@ -7,37 +7,52 @@ import { QueueControl } from "./QueueControl";
 import { Scoreboard } from "./Scoreboard";
 import { SignOut } from "./SignOut";
 import { Configuration } from "./Configuration";
+import { Improvement } from "./Improvement";
 import { Settings } from "./Settings";
 import "./style.css";
 import "./platform.css";
+import "./round.css";
 
 const pageTitles = {
   claims: "Claims desk",
   scoreboard: "Scoreboard",
   configuration: "Configuration",
+  improvement: "Improvement",
   settings: "Settings",
 };
 type DashboardTab = keyof typeof pageTitles;
 
+function initialTab(): DashboardTab {
+  const query = new URLSearchParams(window.location.search);
+  if (query.has("evaluation") || query.get("page") === "scoreboard") {
+    return "scoreboard";
+  }
+  const page = query.get("page");
+  return page === "configuration" ||
+    page === "settings" ||
+    page === "improvement"
+    ? page
+    : "claims";
+}
+
 function PageHeading({ tab }: Readonly<{ tab: DashboardTab }>) {
   const subtitles = {
-    claims: "Every claim, considered.",
+    claims:
+      "Review claim evidence, agent decisions, and payouts awaiting sign-off.",
     scoreboard: "Compare evaluation results with handler decisions.",
     configuration:
       "Review the claim agent’s instructions, model, and version history.",
+    improvement:
+      "Review proposed changes and compare held-out performance across rounds.",
     settings:
       "Manage payout approvals, improvement objectives, and spending limits.",
   };
   return (
     <div className="page-heading">
       <div>
-        <p className="eyebrow">CLAIMS OPERATIONS</p>
         <h1>{pageTitles[tab]}</h1>
         {subtitles[tab] && <p className="subtitle">{subtitles[tab]}</p>}
       </div>
-      <span className="team-label">
-        UnderCover Agent <span className="availability">Policy-led review</span>
-      </span>
     </div>
   );
 }
@@ -52,14 +67,7 @@ export function App({ handler }: Readonly<{ handler: Handler }>) {
   const [evaluationId, setEvaluationId] = useState(() =>
     new URLSearchParams(window.location.search).get("evaluation"),
   );
-  const [tab, setTab] = useState<DashboardTab>(() => {
-    const query = new URLSearchParams(window.location.search);
-    if (query.has("evaluation") || query.get("page") === "scoreboard") {
-      return "scoreboard";
-    }
-    const page = query.get("page");
-    return page === "configuration" || page === "settings" ? page : "claims";
-  });
+  const [tab, setTab] = useState<DashboardTab>(initialTab);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const [queueRunning, setQueueRunning] = useState(false);
@@ -129,18 +137,20 @@ export function App({ handler }: Readonly<{ handler: Handler }>) {
           >
             Scoreboard
           </button>
-          {(["configuration", "settings"] as const).map((page) => (
-            <button
-              key={page}
-              aria-current={tab === page ? "page" : undefined}
-              onClick={() => {
-                setTab(page);
-                window.history.replaceState(null, "", "?page=" + page);
-              }}
-            >
-              {pageTitles[page]}
-            </button>
-          ))}
+          {(["configuration", "improvement", "settings"] as const).map(
+            (page) => (
+              <button
+                key={page}
+                aria-current={tab === page ? "page" : undefined}
+                onClick={() => {
+                  setTab(page);
+                  window.history.replaceState(null, "", "?page=" + page);
+                }}
+              >
+                {pageTitles[page]}
+              </button>
+            ),
+          )}
         </nav>
         <div className="handler-menu">
           <span>{handler.name}</span>
@@ -164,6 +174,9 @@ export function App({ handler }: Readonly<{ handler: Handler }>) {
           />
         )}
         {tab === "configuration" && <Configuration />}
+        {tab === "improvement" && (
+          <Improvement writable={handler.can_approve_over_limit} />
+        )}
         {tab === "settings" && (
           <Settings writable={handler.can_approve_over_limit} />
         )}

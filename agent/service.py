@@ -14,12 +14,13 @@ import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from agent import main
+from agent import improver, improver_api, main
 from agent.checkpoints import clear_threads
 from agent.claim_graph import WAITING_FOR_SIGN_OFF
 from agent.configuration import RunConfiguration
 from agent.dispatcher import MAX_CONCURRENCY, dispatch
 from agent.ownership import ClaimOwnership
+from agent.round_evaluation import RoundEvaluation
 from agent.swarm_work import SwarmWork, failure_text
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,16 @@ class StartDispatch(BaseModel):
 class StartEvaluation(StartDispatch):
     dataset: Dataset
     size: EvaluationSize
+
+
+class RoundStart(BaseModel):
+    handler_id: str
+
+
+class RoundReview(RoundStart):
+    proposal_id: str
+    choice: Literal["approve", "reject"]
+    reason: str
 
 
 class ScheduledRun(StartDispatch):
@@ -114,26 +125,71 @@ class Worker:
     def recover(self):
         result = api("POST", f"{RUNS}/recover")
         clear_threads(result.get("evaluation_threads", []))
+        api("POST", "/api/improver/recover", {})
 
-    def run_swarm(self, job: ScheduledRun, configuration: RunConfiguration):
+    def evaluate_for_round(self, client, step):
+        config = RunConfiguration.model_validate(
+            api("GET", f"/api/agent/configuration/{step['version']}")
+        )
+        job = ScheduledRun(
+            run_id=step["run_id"],
+            kind="evaluation",
+            model=config.model,
+            reasoning_effort=config.reasoning_effort,
+            dataset=step["dataset"],
+            size="full",
+            concurrency=step["concurrency"],
+        )
+        self.run_swarm(
+            job, config, RoundEvaluation(client, job.run_id, step["cold_start"])
+        )
+
+    def improve(self, client, review):
+        try:
+            improver.run_round(client, self.evaluate_for_round, review)
+        except Exception as error:
+            if client.get()["status"] not in {"stopped", "finished"}:
+                client.post("stop", {"reason": str(error)})
+            raise
+
+    def run_swarm(
+        self,
+        job: ScheduledRun,
+        configuration: RunConfiguration,
+        control: RoundEvaluation | None = None,
+    ):
         api("POST", f"{RUNS}/versions/{configuration.version}", job.model_dump())
         path = f"{RUNS}/{job.run_id}"
         status, error, dispositions = "completed", "", {}
         try:
             claim_runner = (
-                main.ClaimRunner(configuration)
+                main.ClaimRunner(
+                    configuration,
+                    control.client.id if control else None,
+                    control.before_model if control else None,
+                )
                 if self.can_resume_directly
                 else self.claim_runner
             )
             if job.kind == "dispatch":
                 claim_runner = partial(self.run_claim, runner=claim_runner)
-            swarm = SwarmWork(api, self.ownership.dispatch, claim_runner)
-            dispositions = self.dispatch_runner(
-                lambda: api("GET", f"{path}/work"),
-                swarm.work_claim,
-                job.run_id,
-                job.concurrency,
+            swarm = SwarmWork(
+                api,
+                self.ownership.dispatch,
+                claim_runner,
+                control.allowed if control else None,
             )
+            claim_ids = api("GET", f"{path}/work")
+            if control:
+                dispositions = control.dispatch(
+                    self.dispatch_runner, claim_ids, swarm.work_claim, job.concurrency
+                )
+                if not control.allowed():
+                    status, error = "stopped", control.reason
+            else:
+                dispositions = self.dispatch_runner(
+                    lambda: claim_ids, swarm.work_claim, job.run_id, job.concurrency
+                )
         except Exception as exc:
             status, error = "failed", failure_text(exc)
         result = api(
@@ -154,6 +210,7 @@ class ServiceTasks:
             max_workers=1, thread_name_prefix="standalone"
         )
         self.running = Lock()
+        self.owner = ""
         self.ready = Event()
 
     @staticmethod
@@ -204,25 +261,58 @@ class ServiceTasks:
                 asyncio.to_thread(self.standalone.shutdown),
             )
 
-    def execute_run(self, job: ScheduledRun, configuration: RunConfiguration):
+    def reserve(self, owner: str):
+        if not self.ready.is_set():
+            raise HTTPException(503, "The claim service is starting")
+        with self.running:
+            if self.owner:
+                raise HTTPException(409, f"A {self.owner} is already running")
+            self.owner = owner
+
+    def release(self):
+        with self.running:
+            self.owner = ""
+
+    def execute(self, function, *args):
         try:
-            self.worker.run_swarm(job, configuration)
+            function(*args)
         finally:
-            self.running.release()
+            self.release()
+
+    def improvement(self, body, round_id: str | None, background: BackgroundTasks):
+        self.reserve("round")
+        try:
+            if round_id is None:
+                record = improver_api.request("POST", improver_api.ROUNDS, body)
+                client = improver_api.RoundClient(record["id"])
+                review = None
+            else:
+                client = improver_api.RoundClient(round_id)
+                record = client.post("review", body)
+                review = body
+            background.add_task(
+                self.submit,
+                self.coordinator,
+                self.execute,
+                self.worker.improve,
+                client,
+                review,
+            )
+            return record
+        except Exception:
+            self.release()
+            raise
 
     def start_run(
         self, body: StartDispatch | StartEvaluation, background: BackgroundTasks
     ) -> dict[str, str]:
-        if not self.ready.is_set():
-            raise HTTPException(503, "The claim service is starting")
-        if not self.running.acquire(blocking=False):
-            raise HTTPException(409, "A dispatch or evaluation is already running")
+        self.reserve("evaluation" if isinstance(body, StartEvaluation) else "dispatch")
         try:
             configuration = RunConfiguration.model_validate(
                 api("GET", "/api/agent/configuration/current")
             )
         except Exception:
-            self.running.release()
+            self.release()
             raise
         evaluation = isinstance(body, StartEvaluation)
         job = ScheduledRun(
@@ -236,7 +326,12 @@ class ServiceTasks:
         )
 
         background.add_task(
-            self.submit, self.coordinator, self.execute_run, job, configuration
+            self.submit,
+            self.coordinator,
+            self.execute,
+            self.worker.run_swarm,
+            job,
+            configuration,
         )
         return {"run_id": job.run_id}
 
@@ -259,6 +354,20 @@ def create_service(worker: Worker | None = None):
     def start_evaluation(body: StartEvaluation, background: BackgroundTasks):
         """Schedule an evaluation of the selected claims."""
         return tasks.start_run(body, background)
+
+    @app.post("/improvement/start", status_code=202, operation_id="start_improver_work")
+    def start_round(body: RoundStart, background: BackgroundTasks):
+        """Start a round from the handler's authenticated request."""
+        return tasks.improvement(body.model_dump(), None, background)
+
+    @app.post(
+        "/improvement/{round_id}/review",
+        status_code=202,
+        operation_id="review_improver_proposal",
+    )
+    def review_proposal(round_id: str, body: RoundReview, background: BackgroundTasks):
+        """Record a handler decision before resuming the round."""
+        return tasks.improvement(body.model_dump(), round_id, background)
 
     @app.post("/wake", status_code=202, operation_id="wake_agent")
     def start():

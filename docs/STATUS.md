@@ -277,3 +277,7 @@ Completed evaluations store Jev explanation grades, match probabilities and judg
 ## Improve · Phase 4
 
 The backend stores one open round, its settings, approval audit and trial membership. Baseline and candidate use one evaluation and two held-out runs. Only full completed round evaluations contribute scores. The first cold evaluation measures one claim before admitting the remainder. Decimal spending comparisons accept a trial that fits the balance exactly. Checks cover the keep/rollback rule, stopped trials, mismatched datasets, held-out aggregate-only access and a stop racing the verdict. Actual OpenRouter key credit and real spend belong to hosted acceptance.
+
+## Improve · Phase 5
+
+Start an Improvement round as Dana. The service reserves each model call, releases dispatch admission during review and restores pending proposals from synchronous checkpoints. In full service integration tests using SQLite, scripted models and a stub judge, a round ran three baseline and three candidate trials, received a rejection, resumed approvals after service restarts, rolled back the candidate and updated the recipe. The free-mode scenario ran without judge calls and recorded zero cost. All 252 Python tests and 37 dashboard tests passed. Chromium also exercised signed-in proposal approval and stopping a round through the real backend with an agent stand-in.

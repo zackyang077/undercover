@@ -128,8 +128,14 @@ def test_accepts_before_backend_creation_and_reserves_one_run(kind, monkeypatch)
                 "reasoning_effort": effort,
                 "instructions": "Version three.",
             }
-        if path == "/api/swarm/runs/recover":
-            return {"evaluation_threads": ["stopped-evaluation-thread"]}
+        recovery = {
+            "/api/improver/recover": {},
+            "/api/swarm/runs/recover": {
+                "evaluation_threads": ["stopped-evaluation-thread"]
+            },
+        }
+        if path in recovery:
+            return recovery[path]
         if path == "/api/work":
             return {"claims": []}
         recorded.append((method, path, body))

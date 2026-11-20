@@ -76,6 +76,8 @@ class ClaimGraph:
     configuration: Callable[[], RunConfiguration]
     bound_model: Callable
     deadline: float
+    round_id: str | None = None
+    before_model: Callable[[], None] | None = None
     segment_id: str = field(default_factory=lambda: str(uuid4()), init=False)
     started_at: str = field(init=False)
     started_ns: int = field(init=False)
@@ -156,6 +158,8 @@ class ClaimGraph:
             model = self.bound_model(
                 configuration.model, configuration.reasoning_effort
             )
+        if self.before_model:
+            self.before_model()
         call_id = str(uuid4())
         try:
             answer = model.invoke(state["messages"])
@@ -266,7 +270,7 @@ class ClaimGraph:
 
 def work(nodes: ClaimGraph, signed_record: dict | None) -> str:
     claim_id, thread_id = nodes.claim_id, nodes.thread_id
-    config = claim_config(claim_id, thread_id, nodes.run_id)
+    config = claim_config(claim_id, thread_id, nodes.run_id, nodes.round_id)
     config["recursion_limit"] = 4 * MAX_MODEL_CALLS + 12
     with open_saver() as saver:
         graph = nodes.compile(saver)

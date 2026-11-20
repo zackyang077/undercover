@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from urllib.parse import urlencode
@@ -163,6 +164,8 @@ def model(settings: ModelSettings | None = None) -> ChatOpenAI:
 @dataclass
 class ClaimRunner:
     configuration: RunConfiguration | None = None
+    round_id: str | None = None
+    before_model: Callable[[], None] | None = None
 
     def __call__(
         self,
@@ -199,6 +202,8 @@ class ClaimRunner:
             emit=emit,
             tools=tools,
             configuration=selected_configuration,
+            round_id=self.round_id,
+            before_model=self.before_model,
             bound_model=bound_model,
             deadline=time.monotonic() + CLAIM_SECONDS,
         )

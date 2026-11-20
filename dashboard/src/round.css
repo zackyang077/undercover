@@ -1,0 +1,113 @@
+.round-control h2 {
+  margin: 0;
+}
+.round-control > p,
+.proposal-review > p {
+  margin: 12px 0;
+}
+.round-control .section-heading {
+  align-items: center;
+}
+.round-control .status {
+  font-size: 12px;
+}
+.round-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin-top: 20px;
+}
+.round-actions label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  flex: 1;
+  max-width: 380px;
+}
+.round-status.working,
+.round-status.baseline,
+.round-status.candidate {
+  background: #d6edf5;
+  color: #07536e;
+}
+.round-status.configuration_review,
+.round-status.recipe_review {
+  background: #ffeac2;
+  color: #684800;
+}
+.round-status.verdict {
+  background: #ddf3e8;
+  color: #13573d;
+}
+.proposal-review {
+  padding: 14px 0;
+}
+.round-entry summary {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.round-entry summary::before {
+  content: "▸";
+  color: inherit;
+}
+.round-entry[open] > summary::before {
+  content: "▾";
+}
+.round-entry summary > span:first-of-type {
+  margin-right: auto;
+}
+.round-audit {
+  padding: 12px;
+}
+.compact-table caption {
+  font-weight: 600;
+}
+.round-audit dt {
+  text-transform: capitalize;
+}
+.chart-scroll {
+  overflow: auto;
+}
+.trend-chart svg {
+  width: 100%;
+  height: 195px;
+  display: block;
+}
+.chart-key {
+  display: flex;
+  gap: 22px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.chart-key span::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  background: currentColor;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.accuracy-series {
+  color: #11765b;
+}
+.grade-series {
+  color: #1b6d8e;
+}
+.axis {
+  fill: currentColor;
+  font-size: 10px;
+}
+.axis line {
+  stroke: currentColor;
+  opacity: 0.18;
+}
+[data-theme="dark"] .accuracy-series {
+  color: #6bdfae;
+}
+[data-theme="dark"] .grade-series {
+  color: #86d9f3;
+}

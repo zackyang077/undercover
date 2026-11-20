@@ -10,6 +10,7 @@ from pydantic import JsonValue
 
 from backend.tests.auth_server import routes as auth_routes
 from backend.tests.judge_server import routes as judge_routes
+from backend.tests.round_server import routes as round_routes
 
 app = FastAPI()
 app.add_middleware(
@@ -19,6 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_routes)
+app.include_router(round_routes)
 app.include_router(judge_routes)
 observations: dict[str, list[dict[str, JsonValue]]] = {}
 dispatch_starts: list[dict[str, JsonValue]] = []

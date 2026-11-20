@@ -21,10 +21,12 @@ class SwarmWork:
         api: Callable[..., dict],
         reserve: Callable[[str], AbstractContextManager[bool]],
         claim_runner: Callable[..., str] = main.run,
+        can_retry: Callable[[], bool] | None = None,
     ):
         self.api = api
         self.reserve = reserve
         self.claim_runner = claim_runner
+        self.can_retry = can_retry
 
     def work_claim(self, claim_id: str, run_id: str) -> str:
         """Run up to two durable attempts under the service's claim reservation."""
@@ -51,6 +53,6 @@ class SwarmWork:
                 if result.get("clear_checkpoint"):
                     clear_threads([thread_id])
                 status = result["status"]
-                if not result["retry"]:
+                if not result["retry"] or (self.can_retry and not self.can_retry()):
                     break
         return status
