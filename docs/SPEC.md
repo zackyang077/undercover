@@ -22,14 +22,17 @@ Our goal is to handle claims straight through, as accurately as our handlers do.
 - The queue, with where each claim stands: waiting, in progress, waiting for sign-off or decided.
 - Each claim in full, with the agent's decision and its reasons.
 - What the agent is doing on a claim while it works, step by step.
+- Each dispatch's claims, progress, model cost, elapsed time and outcome summary.
+- A Scoreboard with evaluations, their accuracy, cost and time, and each claim's decision alongside the handler's.
 - The agent's instructions, read only.
 
 ## Working the queue
 
-One queue run chooses the order of waiting claims, keeps a visible to-do list,
-and delegates each claim to a helper. A limited trial caps distinct claims. A
-handler can start one named claim or stop a batch after its current claim.
-Starting the next run continues the unfinished batch within its original cap.
+A dispatcher selects waiting and recoverable in-progress claims, oldest
+submitted first. The handler chooses between 1 and 25 claim agents at once,
+with 3 selected initially. A handler can also start one named claim. The next
+dispatch continues eligible work left unfinished by a stopped dispatch. One
+dispatch or evaluation can run at a time.
 
 Each helper reads evidence and versioned guidance through the backend, selects
 covered expenses and uses UnderCover's payout calculator. The claim page shows
@@ -38,10 +41,13 @@ payout that needs a handler waits on its thread while other claims proceed.
 Signing off records the handler and time. The claim shows In progress until the
 agent records its simulated payment. The signed approval survives an outage.
 
-Interrupted work resumes from its last saved step on the same attempt. A failed
-undecided claim gets one fresh retry within its original slot. Two failures
-leave it for a handler. Replaying an existing decision or payment returns the
-claim. The queue checks for missed work within its cap and shows a final summary.
+Interrupted work resumes from its last saved step on the same attempt. A rate
+limit or model timeout can retry on that thread. After those retries run out,
+the next dispatch can continue the attempt. An undecided claim with another
+error gets one fresh attempt. Two failures leave it for a handler. The backend
+uses the saved claims to summarize each dispatch. Claims can be evaluated as
+independent copies using the whole evaluation or held-out set, or five tiny
+claims from either. A held payout on an evaluation copy counts as finished.
 
 ## Rules
 

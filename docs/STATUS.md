@@ -71,7 +71,7 @@ a held copy. A stopped evaluation left its copies out of the next dispatch.
 The isolated suite passed 175 Python tests (96.01% coverage) and 20 frontend
 tests (96.96% statement coverage). A rolled-back PostgreSQL transaction
 verified both reference sets and full and tiny copy creation. The hosted
-reset check will use the final acceptance series' single seed.
+reset check remains open in Phase 6.
 
 ## Swarm · Phase 5
 
@@ -91,6 +91,25 @@ The live queue was identical before and after the evaluation. On a 390-pixel
 viewport, Chromium reloaded a stopped evaluation at its original URL and
 showed one of five copies worked. A local trace callback captured separate
 dispatch tags on the same claim session across invocations.
+
+## Swarm · Phase 6
+
+On 20 November 2026, `npm run check` passed in an isolated macOS checkout
+without a project `.env`. Pytest passed 179 tests with 95.07% coverage,
+Vitest passed 25 tests with 93.76% statement coverage, and Playwright passed
+all 10 browser scenarios. Formatting, lint and static type checks passed.
+The SQLite reseed test restored 25 waiting claims and 50 reference decisions,
+cleared copies, runs, usage and work segments, and verified the old checkpoint
+in the backup. The Node and uv startup scripts were reviewed for Windows.
+Runtime startup was exercised on macOS.
+
+The hosted acceptance is pending. Automatic approval review rejected
+`npm run seed` because it would erase existing claims results, payments,
+checkpoints and evaluations in the configured Supabase `undercover` schema.
+The reset requires confirmation that this course schema can be cleared. The
+hosted reset and legacy table check, N=3 interruption, N=25 recovery, sign-off
+latency, peak connection count, both live evaluations and the Langfuse tag
+lookup are unverified. This Swarm build has no hosted run IDs or timings.
 
 ## Durable claims · Phase 1
 

@@ -24,7 +24,7 @@ When asked to implement the plan, as in "Please implement the plan for the pilot
 
 1. Build it, with tests.
 2. Check every success criterion and fix whatever fails.
-3. Tick off its criteria in the approved build plan (for this build, `docs/PLAN_DURABLE.md`) and update `docs/STATUS.md`.
+3. Tick off its verified criteria in the approved build plan (`docs/PLAN_SWARM.md` for the Swarm build) and update `docs/STATUS.md`.
 4. Commit. The pre-commit hook runs the checks; if it fails, fix the problem and commit again.
 
 When the last phase is done, run `npm run check` and report the results.
@@ -41,16 +41,20 @@ When the last phase is done, run `npm run check` and report the results.
 - Don't open `data/evals/` unless you're asked to.
 - Everything must work on Windows: write `package.json` scripts as `uv run` commands or `.mjs` files.
 
-## Durable claims acceptance
+## Swarm acceptance
 
 Run the full checks without a project .env. Pytest isolates cloud credentials.
 Playwright uses a temporary SQLite backend on 8010, dashboard on 5174, and a
 notification stand-in on 8003. The stand-in reads the committed sign-off;
 Python integration tests exercise the actual resume and payment nodes.
 
-For each independent live trial, stop applications using the selected product
-database and reseed it first. Start the default model with a cap of five distinct
-claims. A deliberate process interruption and restart continues the same trial
-from its saved checkpoint. Record claim IDs, attempt counts, the browser sign-off
-latency, the postgres connection count from Supabase MCP, and trace IDs on both
-sides of the sign-off from the Langfuse API.
+For the hosted acceptance series, stop the applications and run `npm run seed`
+once. Start the default model and use the browser to dispatch at N=3. Stop the
+agent service partway, restart `npm run dev`, and dispatch at N=25. Record the
+stopped run, original claim threads, overlapping work, and wall time against
+total claim time. Use Supabase MCP to sample `postgres` sessions under load,
+and measure the time from a browser sign-off to visible payment. Verify the
+N=25 dispatch's tag through the Langfuse API. Run the full evaluation set at
+N=25 and the held-out tiny set at N=5. Compare the queue before and after both
+evaluations and check their Scoreboard measurements. Record all evidence under
+the relevant phase in `docs/STATUS.md`.
